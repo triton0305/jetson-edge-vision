@@ -15,27 +15,19 @@ Raspberry Pi 4에서 USB Webcam 영상을 YOLO26n ONNX로 처리해 차량 Detec
 
 ```mermaid
 flowchart TD
-  subgraph Vision["Raspberry Pi: Vision loop"]
-    direction TB
-    A["USB Webcam / V4L2"] --> B["Letterbox 640×640"]
-    B --> C["YOLO26n ONNX"]
-    C --> D["Vehicle Detection + Class-aware NMS"]
-    D --> E["객체별 vision JSON"]
-  end
+  A["Pi Vision loop: USB Webcam / V4L2"]
+  B["Letterbox 640×640"]
+  C["YOLO26n ONNX"]
+  D["Vehicle Detection + Class-aware NMS"]
+  E["객체별 vision JSON"]
+  F["Network worker: Message Queue"]
+  G["TCP 전송 / ACK 검증"]
+  H["Relay Server: JSON 검증"]
+  I["SQLite detections 저장"]
+  J["ACK 반환"]
 
-  subgraph Network["Raspberry Pi: Network worker"]
-    direction TB
-    F["Message Queue"] --> G["TCP 전송 / ACK 검증"]
-  end
-
-  subgraph Relay["Relay Server"]
-    direction TB
-    H["JSON 검증"] --> I["SQLite detections 저장"]
-    I --> J["ACK 반환"]
-  end
-
-  E --> F
-  G --> H
+  A --> B --> C --> D --> E
+  E --> F --> G --> H --> I --> J
 ```
 
 Detection이 없는 프레임은 전송하지 않습니다. 동일 차량이 여러 추론 프레임에서 반복 탐지되는 것은 정상이며, 각 Detection은 별도 이력입니다. 따라서 Detection 건수는 고유 차량 대수나 실제 통과량, 누적 교통량 또는 도로 전체의 혼잡도를 뜻하지 않습니다.
