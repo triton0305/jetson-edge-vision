@@ -2,6 +2,7 @@
 #define CONFIG_HPP
 
 #include <cstddef>
+#include <cstdint>
 
 namespace Config
 {
@@ -17,6 +18,8 @@ constexpr std::size_t MAX_QUEUE_SIZE = 16;
 constexpr float TRACKER_MIN_IOU = 0.10f;
 constexpr double TRACKER_MAX_CENTER_DISTANCE = 160.0;
 constexpr int TRACKER_MAX_MISSED_FRAMES = 3;
+
+constexpr std::int64_t TRAFFIC_COUNT_PERIOD_MS = 5000;
 }
 
 #endif // CONFIG_HPP
