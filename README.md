@@ -108,7 +108,7 @@ USB Webcam → Raspberry Pi Client → TCP → Windows/WSL Relay Server → SQLi
 
 ## Traffic Feature Decision
 
-개발 중 Tracking, 기준선 통과 판정 및 5초 `traffic_count` 생성까지 구현하고 E2E 테스트를 진행했습니다. 이후 테스트 결과와 데이터 의미를 검토하며 Client/Server 책임을 다시 정했고, 최종 운영 데이터는 객체별 Detection 이력으로 확정했습니다. Tracker, Line Crossing, `traffic_count` 및 검토했던 `traffic_state`는 현재 실행 범위에 포함되지 않습니다.
+개발 중 Tracking, 기준선 통과 판정 및 5초 `traffic_count` 생성까지 구현하고 E2E 테스트를 진행했습니다. 이후 테스트 결과와 데이터 활용 목적을 검토해, 최종 운영 데이터는 객체별 Detection 이력으로 확정했습니다. Tracker, Line Crossing, `traffic_count` 및 검토했던 `traffic_state`는 현재 실행 범위에 포함되지 않습니다.
 
 ## Operational Follow-up
 
