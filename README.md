@@ -96,15 +96,27 @@ Raspberry Pi 4 CPU 환경에서 측정한 결과입니다. 장면과 실행 조�
 
 ## Build and Run
 
-OpenCV 개발 패키지, nlohmann/json 헤더 및 YOLO26n ONNX 모델이 필요합니다. 영상 창을 표시할 수 있는 GUI 환경에서 실행합니다.
+### Requirements
 
-**개발용 실행:** 기본 모델 경로는 `models/yolo26n.onnx`, boot ID 경로는 Repository 루트의 `boot_id.dat`입니다.
+- Raspberry Pi 4 / 64-bit Linux
+- C++17 compiler
+- CMake
+- OpenCV with DNN, V4L2 and HighGUI support
+- nlohmann/json
+- YOLO26n ONNX model
+
+The ONNX model is not included in the repository.  
+For development, place it at:
+
+`models/yolo26n.onnx`
+
+### Development Build
+
+From the repository root:
 
 ```bash
 cmake -S . -B build
 cmake --build build -j
-./build/bin/edge_vision <server_ip> <server_port>
-```
 
 **운영 배포:** 모델을 `/opt/edge_vision/models/yolo26n.onnx`에 배치하고, `edgevision` 계정이 `/var/lib/edge_vision/boot_id.dat`에 쓸 수 있도록 준비합니다. 운영 경로를 지정해 빌드한 뒤 실행 파일을 배치합니다.
 
