@@ -23,6 +23,7 @@
 #include "core/metrics.hpp"
 #include "vision/tracker.hpp"
 #include "vision/traffic_counter.hpp"
+#include "protocol/outbound_message.hpp"
 
 namespace
 {
@@ -223,7 +224,7 @@ void VisionWorker::run()
       {
         std::cout << message << '\n';
 
-        if (!message_queue_.push({message_id, message}))
+        if (!message_queue_.push({message_id, message, DeliveryPolicy::Reliable}))
         {
           std::cerr << "Failed to enqueue message\n";
           running_ = 0;

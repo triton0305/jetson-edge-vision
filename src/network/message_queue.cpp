@@ -18,11 +18,37 @@ bool MessageQueue::push(OutboundMessage message)
 
     if (queue_.size() >= max_size_)
     {
-      std::cerr << "Queue full: dropping oldest message "
-                << queue_.front().message_id << '\n';
+      bool dropped = false;
+      std::queue<OutboundMessage> retained;
 
-      queue_.pop();
-      ++dropped_count_;
+      while (!queue_.empty())
+      {
+        OutboundMessage current = std::move(queue_.front());
+        queue_.pop();
+
+        if (!dropped && current.delivery_policy == DeliveryPolicy::BestEffort)
+        {
+          std::cerr << "Queue full: dropping best-effort message "
+                    << current.message_id << '\n';
+
+          ++dropped_count_;
+          dropped = true;
+          continue;
+        }
+
+        retained.push(std::move(current));
+      }
+
+      queue_ = std::move(retained);
+
+      if (!dropped && message.delivery_policy == DeliveryPolicy::BestEffort)
+      {
+        std::cerr << "Queue full: dropping incoming best-effort message "
+                  << message.message_id << '\n';
+
+        ++dropped_count_;
+        return true;
+      }
     }
 
     queue_.push(std::move(message));
