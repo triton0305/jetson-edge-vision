@@ -98,3 +98,9 @@ std::uint64_t MessageQueue::droppedCount() const
   std::lock_guard<std::mutex> lock(mutex_);
   return dropped_count_;
 }
+
+bool MessageQueue::isClosed() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return closed_;
+}

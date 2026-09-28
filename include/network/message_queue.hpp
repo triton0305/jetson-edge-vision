@@ -20,6 +20,7 @@ public:
 
   std::size_t size() const;
   std::uint64_t droppedCount() const;
+  bool isClosed() const;
 
 private:
   std::queue<OutboundMessage> queue_;

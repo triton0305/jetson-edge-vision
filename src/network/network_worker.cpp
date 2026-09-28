@@ -7,6 +7,7 @@
 
 #include "network/ack.hpp"
 #include "core/config.hpp"
+#include "protocol/outbound_message.hpp"
 
 NetworkWorker::NetworkWorker(
   MessageQueue& queue,
@@ -24,15 +25,27 @@ void NetworkWorker::run()
   {
     const auto delivery_start = std::chrono::steady_clock::now();
 
+    const bool reliable = message.delivery_policy == DeliveryPolicy::Reliable;
     bool ack_received = false;
 
-    for (int attempt = 0; attempt <= Config::MAX_RETRY_COUNT; ++attempt)
+    for (int attempt = 0; reliable || attempt <= Config::MAX_RETRY_COUNT; ++attempt)
     {
+      if (queue_.isClosed())
+        return;
+
       if (attempt > 0)
       {
-        std::cerr << "Retry " << attempt << '/'
-                  << Config::MAX_RETRY_COUNT << ": "
-                  << message.message_id << '\n';
+        if (reliable)
+        {
+          std::cerr << "Reliable retry " << attempt << ": "
+                    << message.message_id << '\n';
+        }
+        else
+        {
+          std::cerr << "Retry " << attempt << '/'
+                    << Config::MAX_RETRY_COUNT << ": "
+                    << message.message_id << '\n';
+        }
       }
 
       if (!tcp_client_.isConnected())
@@ -47,7 +60,7 @@ void NetworkWorker::run()
 
       if (!tcp_client_.sendData(message.payload))
       {
-        std::cerr << "Failed to send detection result: "
+        std::cerr << "Failed to send message: "
                   << message.message_id << '\n';
 
         tcp_client_.disconnect();
@@ -66,8 +79,7 @@ void NetworkWorker::run()
       }
 
       std::string error_code;
-      AckResult ack_result =
-        checkAck(ack_message, message.message_id, error_code);
+      AckResult ack_result = checkAck(ack_message, message.message_id, error_code);
 
       if (ack_result == AckResult::ServerError)
       {
@@ -102,10 +114,8 @@ void NetworkWorker::run()
       std::cerr << "ACK retry limit exceeded: "
                 << message.message_id << '\n';
 
-      std::cerr << "Dropping undelivered message: "
+      std::cerr << "Dropping undelivered best-effort message: "
                 << message.message_id << '\n';
-
-      continue;
     }
   }
 }
