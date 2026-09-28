@@ -79,7 +79,9 @@ Raspberry Pi 4 CPU에서 측정한 당시 결과이며, 장면과 실행 조건�
 
 ## Build and Run
 
-OpenCV 개발 패키지와 nlohmann/json 헤더, `models/yolo26n.onnx` 모델 파일이 필요합니다. 모델 및 boot ID 경로는 CMake의 `MODEL_PATH`, `BOOT_ID_PATH`로 재설정할 수 있습니다. GUI 영상 출력이 가능한 환경에서 실행합니다.
+OpenCV 개발 패키지, nlohmann/json 헤더 및 YOLO26n ONNX 모델이 필요합니다. 영상 창을 표시할 수 있는 GUI 환경에서 실행합니다.
+
+**개발용 실행:** 기본 모델 경로는 `models/yolo26n.onnx`, boot ID 경로는 Repository 루트의 `boot_id.dat`입니다.
 
 ```bash
 cmake -S . -B build
@@ -87,7 +89,18 @@ cmake --build build -j
 ./build/bin/edge_vision <server_ip> <server_port>
 ```
 
-서버 빌드·실행 방법은 [Relay Server README](https://github.com/triton0305/edge-vision-relay-server)를 참고하세요.
+**운영 배포:** CMake 경로를 운영 위치로 지정해 빌드하고, 실행 파일을 `/opt/edge_vision/bin/`에 배치합니다. 모델은 `/opt/edge_vision/models/yolo26n.onnx`에 있어야 하고, `edgevision` 계정은 `/var/lib/edge_vision/boot_id.dat`에 쓸 수 있어야 합니다.
+
+```bash
+cmake -S . -B build-deploy \
+  -DMODEL_PATH=/opt/edge_vision/models/yolo26n.onnx \
+  -DBOOT_ID_PATH=/var/lib/edge_vision/boot_id.dat
+cmake --build build-deploy -j
+sudo install -m 755 build-deploy/bin/edge_vision /opt/edge_vision/bin/edge_vision
+./pirun <server_ip> <server_port>
+```
+
+Repository 루트의 `pirun`은 `sudo -u edgevision /opt/edge_vision/bin/edge_vision`을 호출해 IP와 Port를 전달합니다. 서버 빌드·실행 방법은 [Relay Server README](https://github.com/triton0305/edge-vision-relay-server)를 참고하세요.
 
 ## Project Structure
 
