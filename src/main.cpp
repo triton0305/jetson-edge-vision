@@ -17,8 +17,6 @@
 #include "protocol/serializer.hpp"
 #include "network/tcp_client.hpp"
 #include "vision/vision_worker.hpp"
-#include "vision/tracker.hpp"
-#include "vision/traffic_counter.hpp"
 
 volatile std::sig_atomic_t running = 1;
 
@@ -63,8 +61,6 @@ int main(int argc, char* argv[])
   Preprocessor preprocessor(640, 640);
   Detector detector(model_path);
   PostProcessor postprocessor(0.25f, 0.45f);
-  Tracker tracker;
-  TrafficCounter traffic_counter(Config::TRAFFIC_LINE_Y);
   Serializer serializer;
   TcpClient tcp_client(server_ip, server_port);
   Metrics metrics;
@@ -95,7 +91,7 @@ int main(int argc, char* argv[])
   }
 
   VisionWorker vision_worker(
-    camera, preprocessor, detector, postprocessor, tracker, traffic_counter,
+    camera, preprocessor, detector, postprocessor,
     serializer, message_queue, network_worker, metrics,
     boot_id, running);
 

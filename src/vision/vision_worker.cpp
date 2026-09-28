@@ -21,8 +21,6 @@
 #include "network/message_queue.hpp"
 #include "network/network_worker.hpp"
 #include "core/metrics.hpp"
-#include "vision/tracker.hpp"
-#include "vision/traffic_counter.hpp"
 #include "protocol/outbound_message.hpp"
 
 namespace
@@ -39,8 +37,6 @@ VisionWorker::VisionWorker(
   Preprocessor& preprocessor,
   Detector& detector,
   PostProcessor& postprocessor,
-  Tracker& tracker,
-  TrafficCounter& traffic_counter,
   Serializer& serializer,
   MessageQueue& message_queue,
   NetworkWorker& network_worker,
@@ -51,8 +47,6 @@ VisionWorker::VisionWorker(
     preprocessor_(preprocessor),
     detector_(detector),
     postprocessor_(postprocessor),
-    tracker_(tracker),
-    traffic_counter_(traffic_counter),
     serializer_(serializer),
     message_queue_(message_queue),
     network_worker_(network_worker),
@@ -104,35 +98,10 @@ void VisionWorker::run()
       outputs, frame.cols, frame.rows,
       preprocessor_.inputWidth(), preprocessor_.inputHeight());
 
-    std::vector<TrackedDetection> tracked_detections = tracker_.update(detections);
-
-    std::vector<TrafficCount> traffic_counts = traffic_counter_.update(tracked_detections, timestamp_ms);
-
-    for (const TrafficCount& count : traffic_counts)
-    {
-      ++sequence;
-
-      const std::string message_id = createMessageId(boot_id_, sequence);
-      const std::string message = serializer_.serializeTrafficCount(count, message_id);
-
-      if (!message.empty())
-      {
-        std::cout << message << '\n';
-
-        if (!message_queue_.push({message_id, message, DeliveryPolicy::Reliable}))
-        {
-          std::cerr << "Failed to enqueue traffic count\n";
-          running_ = 0;
-          break;
-        }
-      }
-    }
-
     cv::Mat display_frame = frame.clone();
 
-    for (const TrackedDetection& tracked : tracked_detections)
+    for (const Detection& detection : detections)
     {
-      const Detection& detection = tracked.detection;
       const BoundingBox& bbox = detection.bbox;
 
       cv::rectangle(
@@ -142,8 +111,7 @@ void VisionWorker::run()
         2);
 
       std::ostringstream label;
-      label << detection.class_name
-            << " ID:" << tracked.track_id << ' '
+      label << detection.class_name << ' '
             << std::fixed << std::setprecision(2)
             << detection.confidence;
 
