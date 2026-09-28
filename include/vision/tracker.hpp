@@ -17,8 +17,7 @@ class Tracker
 public:
   Tracker();
 
-  std::vector<TrackedDetection> update(
-    const std::vector<Detection>& detections);
+  std::vector<TrackedDetection> update(const std::vector<Detection>& detections);
 
 private:
   struct Track
