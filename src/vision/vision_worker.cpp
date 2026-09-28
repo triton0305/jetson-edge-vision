@@ -119,7 +119,7 @@ void VisionWorker::run()
       {
         std::cout << message << '\n';
 
-        if (!message_queue_.push({message_id, message}))
+        if (!message_queue_.push({message_id, message, DeliveryPolicy::Reliable}))
         {
           std::cerr << "Failed to enqueue traffic count\n";
           running_ = 0;
@@ -224,7 +224,7 @@ void VisionWorker::run()
       {
         std::cout << message << '\n';
 
-        if (!message_queue_.push({message_id, message, DeliveryPolicy::Reliable}))
+        if (!message_queue_.push({message_id, message}))
         {
           std::cerr << "Failed to enqueue message\n";
           running_ = 0;

@@ -84,10 +84,7 @@ int main(int argc, char* argv[])
   }
 
   if (!tcp_client.connectToServer())
-  {
-    std::cerr << "Failed to connect to server\n";
-    return 1;
-  }
+    std::cerr << "Initial server connection failed; retrying in network worker\n";
 
   std::uint64_t boot_id = 0;
 
