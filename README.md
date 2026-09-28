@@ -96,22 +96,6 @@ Raspberry Pi 4 CPU 환경에서 측정한 결과입니다. 장면과 실행 조�
 
 ## Build and Run
 
-### Requirements
-
-- Raspberry Pi 4 / 64-bit Linux
-- C++17 compiler
-- CMake
-- OpenCV with DNN, V4L2 and HighGUI support
-- nlohmann/json
-- YOLO26n ONNX model
-
-The ONNX model is not included in the repository.  
-For development, place it at:
-
-`models/yolo26n.onnx`
-
-### Development Build
-
 From the repository root:
 
 ```bash
