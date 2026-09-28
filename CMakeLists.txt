@@ -79,6 +79,7 @@ set(SOURCES
     src/network/ack.cpp
     src/network/message_queue.cpp
     src/network/network_worker.cpp
+    src/vision/tracker.cpp
 )
 
 # =============================================================================
