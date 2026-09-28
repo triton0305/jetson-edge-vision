@@ -1,57 +1,74 @@
 # Raspberry Pi Edge Vision
 
-팀프로젝트에서 담당한 Raspberry Pi Vision Client입니다. USB Webcam 영상에서 YOLO26n ONNX로 차량을 탐지·추적하고, 기준선 통과량을 5초 단위로 집계합니다. 생성한 결과를 TCP로 팀원의 Server에 전달하는 것이 프로젝트의 핵심 연동 구조입니다.
-
-이 Client를 별도로 실행하고 통신·DB 저장까지 확인할 수 있도록 [테스트용 Relay Server](https://github.com/triton0305/edge-vision-relay-server)를 독립된 Repository로 제공합니다.
+Raspberry Pi 4에서 USB Webcam 영상을 YOLO26n ONNX로 처리해 차량 Detection을 생성하는 C++17 Vision Client입니다. 탐지 객체마다 JSON 메시지를 만들고, 별도 네트워크 스레드에서 TCP/ACK로 전달합니다. 팀프로젝트의 Client/Server 경계에 맞춰 구현했으며, 독립 검증용 [Relay Server](https://github.com/triton0305/edge-vision-relay-server)도 제공합니다.
 
 ## Key Features
 
 - `car`, `motorcycle`, `bus`, `truck` 탐지 및 Class-aware NMS
-- IoU와 중심점 거리를 이용한 차량 Tracking
-- 수평 기준선 통과 감지 및 차종별 5초 Traffic Counting
-- Detection별 `vision` 메시지와 구간별 `traffic_count` 메시지 생성
-- 영상 처리와 네트워크 처리를 분리한 Thread-safe Message Queue
-- ACK 확인, Timeout, Retry 및 자동 재연결
+- Detection 1개 = `vision` JSON 1개 = `message_id` 1개 = ACK 1개
+- 영상 처리와 송신을 분리하는 유한 Message Queue와 Network Worker
+- 4-byte big-endian length-prefix, partial read/write, ACK Timeout, Retry, 재연결
+- 같은 메시지 재전송 시 `message_id`와 payload 유지
+- FPS, 추론 시간, Queue 크기 및 Drop 수 측정
+
+## Architecture
 
 ```text
-USB Webcam → OpenCV / V4L2 → Letterbox → YOLO26n ONNX
-→ Vehicle Detection → Tracking → Line Crossing / Traffic Counting
-→ JSON → Message Queue → TCP → Server
+USB Webcam → OpenCV / V4L2 → Letterbox 640×640 → YOLO26n ONNX
+→ Vehicle Detection → Class-aware NMS → vision JSON → Message Queue
+→ Network Worker → TCP / ACK → Server → SQLite detections
 ```
 
-Tracker의 `track_id`는 영상에서 동일 차량을 추정하기 위한 임시 ID입니다. 번호판 ID나 전송 메시지의 `message_id`와는 다릅니다. 기준선은 화면의 `y = 240`에 있으며, 이동 방향은 구분하지 않고 차량별 통과를 한 번만 집계합니다.
+Detection이 없는 프레임은 전송하지 않습니다. 동일 차량이 여러 추론 프레임에서 반복 탐지되는 것은 정상이며, 각 Detection은 별도 이력입니다. 따라서 Detection 건수는 고유 차량 대수나 실제 통과량, 누적 교통량 또는 도로 전체의 혼잡도를 뜻하지 않습니다.
+
+## Message Protocol
+
+TCP 프레임은 `4-byte big-endian payload length + JSON payload`입니다. bbox는 원본 640×480 프레임의 픽셀 좌표이고, `timestamp_ms`는 프레임 획득 시각의 Unix ms입니다.
+
+```json
+{
+  "version": 1,
+  "type": "vision",
+  "device_id": "vision-pi-01",
+  "message_id": "vision-pi-01-000059-00000001",
+  "data": {
+    "frame_id": 0,
+    "timestamp_ms": 1790580489875,
+    "class_id": 2,
+    "class_name": "car",
+    "confidence": 0.2803,
+    "bbox": { "x": 131, "y": 328, "width": 85, "height": 70 }
+  }
+}
+```
+
+서버는 같은 length-prefix 형식으로 `{"version":1,"type":"ack","message_id":"vision-pi-01-000059-00000001","status":"ok"}`를 반환합니다. Client는 ACK를 검증하고, 실패 시 최초 시도 포함 최대 3회 동일한 메시지를 전송합니다. 연결 실패 시 재연결을 시도하며 Vision Loop는 계속 실행됩니다. 재시도 한도를 넘은 메시지는 Drop됩니다. Server Error ACK 또는 유효하지 않은 ACK는 실행 실패로 처리합니다.
+
+## Client / Server Responsibility
+
+| Component | Responsibility |
+|---|---|
+| Vision Client | 프레임 획득, 추론, 객체별 Detection 생성, JSON 직렬화, Queue 및 TCP/ACK 전달 |
+| Relay Server | `vision` 검증, SQLite `detections` 저장, 동일 `message_id` 중복 방지, ACK 반환 |
+| Server-side analysis | 저장된 원본의 `timestamp_ms`를 기준으로 시간 구간·차종·confidence별 Detection 통계 계산 |
+
+5초·1분·시간대별 건수와 차종별 비율은 Detection 이력에서 서버 측 후처리로 산출할 수 있습니다. 수신 시각이 아닌 `timestamp_ms`를 구간 기준으로 사용해야 하며, 차종별 비율도 실제 차량 구성비가 아닌 Detection 결과의 비율입니다. 현재 Relay Server는 저장 및 ACK를 담당하며 통계 조회·시각화·보관 정책은 아직 구현하지 않았습니다.
 
 ## Development Environment
 
 | Item | Environment |
 |---|---|
-| Board | Raspberry Pi 4 |
-| OS | Debian GNU/Linux 13, 64-bit |
-| Camera | USB Webcam / OpenCV V4L2 |
-| Camera Resolution | 640 × 480 |
-| Camera FPS | 30 FPS로 설정 시도 |
+| Board / OS | Raspberry Pi 4 / Debian GNU/Linux 13, 64-bit |
+| Camera | USB Webcam, OpenCV V4L2, 640×480 (30 FPS 요청) |
 | Language / Build | C++17 / CMake |
-| Vision / Inference | OpenCV 4.10.0 / OpenCV DNN CPU |
-| Model | YOLO26n ONNX, 640 × 640 input |
-| Serialization | nlohmann/json |
-| Network | TCP/IP, `std::thread` |
+| Inference | OpenCV 4.10.0 DNN, CPU / YOLO26n ONNX, 640×640 input |
+| JSON / Network | nlohmann/json / TCP, `std::thread` |
 
-카메라에서 실제로 프레임을 가져온 속도는 약 `21.6 FPS`였습니다. 입력 프레임은 Letterbox로 변환해 추론하고, 탐지 bbox는 원본 `640 × 480` 좌표로 복원합니다. 처리 대상 COCO Class는 `car(2)`, `motorcycle(3)`, `bus(5)`, `truck(7)`입니다.
-
-## Traffic Counting and Delivery
-
-Detection이 없는 프레임에서는 `vision` 메시지를 보내지 않습니다. Traffic Count는 차량이 통과하지 않은 구간도 0으로 전송합니다.
-
-| Message | Unit | Delivery Policy |
-|---|---|---|
-| `vision` | Detection 1개 | BestEffort: ACK 실패 시 최초 전송 포함 최대 3회 시도 |
-| `traffic_count` | 5초 집계 구간 1개 | Reliable: ACK를 받을 때까지 재연결·재시도 |
-
-메시지는 `4-byte big-endian length-prefix + JSON` 형식으로 전송합니다. 재시도할 때는 동일한 `message_id`와 payload를 유지합니다. 서버가 실행되지 않은 상태에서 Client를 시작해도 영상 처리는 계속되고, Network Worker가 재연결을 시도합니다.
+대상 COCO Class는 `car(2)`, `motorcycle(3)`, `bus(5)`, `truck(7)`입니다.
 
 ## Performance
 
-Raspberry Pi 4 CPU 환경에서 측정한 결과입니다.
+Raspberry Pi 4 CPU에서 측정한 당시 결과이며, 장면과 실행 조건에 따라 달라집니다.
 
 | Metric | Result |
 |---|---:|
@@ -60,11 +77,9 @@ Raspberry Pi 4 CPU 환경에서 측정한 결과입니다.
 | Inference Latency | 약 405–425 ms |
 | Delivery Latency | 약 100–130 ms |
 
-측정값은 테스트 당시의 장면과 실행 환경을 기준으로 하며, 조건에 따라 달라질 수 있습니다.
-
 ## Build and Run
 
-OpenCV 개발 패키지와 nlohmann/json 헤더가 필요합니다. 기본 ONNX 모델 경로는 `models/yolo26n.onnx`입니다.
+OpenCV 개발 패키지와 nlohmann/json 헤더, `models/yolo26n.onnx` 모델 파일이 필요합니다. 모델 및 boot ID 경로는 CMake의 `MODEL_PATH`, `BOOT_ID_PATH`로 재설정할 수 있습니다. GUI 영상 출력이 가능한 환경에서 실행합니다.
 
 ```bash
 cmake -S . -B build
@@ -72,7 +87,7 @@ cmake --build build -j
 ./build/bin/edge_vision <server_ip> <server_port>
 ```
 
-통신 상대가 필요한 경우 [테스트용 Relay Server](https://github.com/triton0305/edge-vision-relay-server)를 사용할 수 있습니다. 서버의 빌드·실행 방법은 해당 Repository의 README를 참고하세요.
+서버 빌드·실행 방법은 [Relay Server README](https://github.com/triton0305/edge-vision-relay-server)를 참고하세요.
 
 ## Project Structure
 
@@ -85,20 +100,19 @@ include/                 src/
                         └── main.cpp
 ```
 
-- `vision`: Camera, 전처리, 추론, 후처리, Tracking, Traffic Counting
-- `core`: 설정, Detection·Traffic Count 데이터, Message ID, Metrics
-- `protocol`: JSON 직렬화
-- `network`: Message Queue, TCP, ACK, Retry, Reconnect
-- `main.cpp`: 컴포넌트 초기화와 실행·종료 흐름
+`vision`은 획득·전처리·추론·후처리, `protocol`은 직렬화, `network`는 Queue·TCP·ACK, `core`는 설정·ID·Metrics를 담당합니다. `main.cpp`는 초기화와 실행·종료 흐름을 연결합니다. 저장소에 남은 Tracker/Traffic 관련 소스는 현재 실행 경로에서 호출하지 않습니다.
 
 ## Integration Verification
 
-팀프로젝트에서는 Vision Client와 팀원의 Server 간 TCP/ACK 연동을 확인했습니다. 별도로 제공한 테스트용 Relay Server로는 Raspberry Pi → Windows/WSL → Relay Server → SQLite → ACK 흐름을 검증했습니다. 이 테스트에서 SQLite `detections`에 약 970행, `traffic_counts`에 약 81행이 누적되는 것을 확인했습니다.
+USB Webcam → Raspberry Pi Client → TCP → Windows/WSL Relay Server → SQLite → ACK → Raspberry Pi 흐름을 실제로 검증했습니다. 최종 Vision-only 테스트(Boot ID 59)에서 `detections`의 vision row 407건과 신규 `traffic_count` row 0건을 확인했습니다. Relay Server는 중복 `message_id`를 한 행으로 유지하고 Error ACK를 반환하는 동작도 별도 검증했습니다.
+
+## Traffic Feature Decision
+
+개발 중 Tracking, 기준선 통과 판정 및 5초 `traffic_count` 생성까지 구현하고 E2E 테스트를 진행했습니다. 이후 테스트 결과와 데이터 의미를 검토하며 Client/Server 책임을 다시 정했고, 최종 운영 데이터는 객체별 Detection 이력으로 확정했습니다. Tracker, Line Crossing, `traffic_count` 및 검토했던 `traffic_state`는 현재 실행 범위에 포함되지 않습니다.
 
 ## Operational Follow-up
 
 - systemd 자동 실행 및 장애 시 재시작
-- Camera 장애 복구
-- 장시간 Soak Test와 운영 로그 보강
-- 장시간 서버 장애 시 Reliable Queue 운영 정책 보완
-- 최종 배포·데모 정리
+- Camera 장애 복구와 장시간 실행 테스트
+- 장기 네트워크 장애 시 Queue/Drop 운영 정책 보완
+- 서버 측 Detection 통계 조회, 시각화 및 보관 정책 구현
