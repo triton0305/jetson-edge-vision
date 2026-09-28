@@ -12,6 +12,9 @@ class Serializer;
 class MessageQueue;
 class NetworkWorker;
 class Metrics;
+class PostProcessor;
+class Tracker;
+class Serializer;
 
 class VisionWorker
 {
@@ -21,6 +24,7 @@ public:
     Preprocessor& preprocessor,
     Detector& detector,
     PostProcessor& postprocessor,
+    Tracker& tracker,
     Serializer& serializer,
     MessageQueue& message_queue,
     NetworkWorker& network_worker,
@@ -35,6 +39,7 @@ private:
   Preprocessor& preprocessor_;
   Detector& detector_;
   PostProcessor& postprocessor_;
+  Tracker& tracker_;
   Serializer& serializer_;
   MessageQueue& message_queue_;
   NetworkWorker& network_worker_;

@@ -4,6 +4,12 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <iomanip>
+#include <sstream>
+
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 #include "core/detection_result.hpp"
 #include "core/message_id.hpp"
@@ -15,6 +21,7 @@
 #include "network/message_queue.hpp"
 #include "network/network_worker.hpp"
 #include "core/metrics.hpp"
+#include "vision/tracker.hpp"
 
 namespace
 {
@@ -30,6 +37,7 @@ VisionWorker::VisionWorker(
   Preprocessor& preprocessor,
   Detector& detector,
   PostProcessor& postprocessor,
+  Tracker& tracker,
   Serializer& serializer,
   MessageQueue& message_queue,
   NetworkWorker& network_worker,
@@ -40,6 +48,7 @@ VisionWorker::VisionWorker(
     preprocessor_(preprocessor),
     detector_(detector),
     postprocessor_(postprocessor),
+    tracker_(tracker),
     serializer_(serializer),
     message_queue_(message_queue),
     network_worker_(network_worker),
@@ -53,6 +62,7 @@ void VisionWorker::run()
 {
   std::uint64_t frame_id = 0;
   std::uint64_t sequence = 0;
+  bool snapshot_saved = false;
 
   std::cout << "Edge Vision loop started\n";
   std::cout << "Boot ID: " << boot_id_ << '\n';
@@ -89,6 +99,88 @@ void VisionWorker::run()
     std::vector<Detection> detections = postprocessor_.process(
       outputs, frame.cols, frame.rows,
       preprocessor_.inputWidth(), preprocessor_.inputHeight());
+
+    std::vector<TrackedDetection> tracked_detections = tracker_.update(detections);
+
+    cv::Mat display_frame = frame.clone();
+
+    for (const TrackedDetection& tracked : tracked_detections)
+    {
+      const Detection& detection = tracked.detection;
+      const BoundingBox& bbox = detection.bbox;
+
+      cv::rectangle(
+        display_frame,
+        cv::Rect(bbox.x, bbox.y, bbox.width, bbox.height),
+        cv::Scalar(0, 255, 0),
+        2);
+
+      std::ostringstream label;
+      label << detection.class_name
+            << " ID:" << tracked.track_id << ' '
+            << std::fixed << std::setprecision(2)
+            << detection.confidence;
+
+      const int label_y = bbox.y > 20 ? bbox.y - 8 : bbox.y + 20;
+
+      cv::putText(
+        display_frame,
+        label.str(),
+        cv::Point(bbox.x, label_y),
+        cv::FONT_HERSHEY_SIMPLEX,
+        0.6,
+        cv::Scalar(0, 255, 0),
+        2);
+    }
+
+    cv::imshow("Edge Vision", display_frame);
+
+    if (cv::waitKey(1) == 27)
+    {
+      running_ = 0;
+    }
+
+    if (!snapshot_saved && !detections.empty())
+    {
+      cv::Mat snapshot = frame.clone();
+
+      for (const Detection& detection : detections)
+      {
+        const BoundingBox& bbox = detection.bbox;
+
+        cv::rectangle(
+          snapshot,
+          cv::Rect(bbox.x, bbox.y, bbox.width, bbox.height),
+          cv::Scalar(0, 255, 0),
+          2);
+
+        std::ostringstream label;
+        label << detection.class_name << ' '
+              << std::fixed << std::setprecision(2)
+              << detection.confidence;
+
+        const int label_y = bbox.y > 20 ? bbox.y - 8 : bbox.y + 20;
+
+        cv::putText(
+          snapshot,
+          label.str(),
+          cv::Point(bbox.x, label_y),
+          cv::FONT_HERSHEY_SIMPLEX,
+          0.6,
+          cv::Scalar(0, 255, 0),
+          2);
+      }
+
+      if (cv::imwrite("test/detection_check.jpg", snapshot))
+      {
+        std::cout << "Detection snapshot saved: test/detection_check.jpg\n";
+        snapshot_saved = true;
+      }
+      else
+      {
+        std::cerr << "Failed to save detection snapshot\n";
+      }
+    }
 
     for (const Detection& detection : detections)
     {
