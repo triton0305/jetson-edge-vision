@@ -80,6 +80,7 @@ set(SOURCES
     src/network/message_queue.cpp
     src/network/network_worker.cpp
     src/vision/tracker.cpp
+    src/vision/traffic_counter.cpp
 )
 
 # =============================================================================
