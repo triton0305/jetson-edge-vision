@@ -22,6 +22,7 @@
 #include "network/network_worker.hpp"
 #include "core/metrics.hpp"
 #include "vision/tracker.hpp"
+#include "vision/traffic_counter.hpp"
 
 namespace
 {
@@ -38,6 +39,7 @@ VisionWorker::VisionWorker(
   Detector& detector,
   PostProcessor& postprocessor,
   Tracker& tracker,
+  TrafficCounter& traffic_counter,
   Serializer& serializer,
   MessageQueue& message_queue,
   NetworkWorker& network_worker,
@@ -49,6 +51,7 @@ VisionWorker::VisionWorker(
     detector_(detector),
     postprocessor_(postprocessor),
     tracker_(tracker),
+    traffic_counter_(traffic_counter),
     serializer_(serializer),
     message_queue_(message_queue),
     network_worker_(network_worker),
@@ -101,6 +104,28 @@ void VisionWorker::run()
       preprocessor_.inputWidth(), preprocessor_.inputHeight());
 
     std::vector<TrackedDetection> tracked_detections = tracker_.update(detections);
+
+    std::vector<TrafficCount> traffic_counts = traffic_counter_.update(tracked_detections, timestamp_ms);
+
+    for (const TrafficCount& count : traffic_counts)
+    {
+      ++sequence;
+
+      const std::string message_id = createMessageId(boot_id_, sequence);
+      const std::string message = serializer_.serializeTrafficCount(count, message_id);
+
+      if (!message.empty())
+      {
+        std::cout << message << '\n';
+
+        if (!message_queue_.push({message_id, message}))
+        {
+          std::cerr << "Failed to enqueue traffic count\n";
+          running_ = 0;
+          break;
+        }
+      }
+    }
 
     cv::Mat display_frame = frame.clone();
 

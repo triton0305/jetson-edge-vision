@@ -20,6 +20,7 @@ constexpr double TRACKER_MAX_CENTER_DISTANCE = 160.0;
 constexpr int TRACKER_MAX_MISSED_FRAMES = 3;
 
 constexpr std::int64_t TRAFFIC_COUNT_PERIOD_MS = 5000;
+constexpr int TRAFFIC_LINE_Y = 240;
 }
 
 #endif // CONFIG_HPP
