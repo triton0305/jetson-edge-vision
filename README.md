@@ -1,6 +1,24 @@
 # Jetson Edge Vision
 
-Raspberry Pi 프로젝트를 Jetson Nano + YOLO26n TensorRT FP16 환경으로 포팅한 C++17 Vision Client입니다.
+[Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)을 Jetson Nano 환경으로 확장한 C++17 차량 인지 Client입니다. 기존 Camera → Detection → Queue → TCP/ACK 구조를 유지하면서, OpenCV DNN의 CPU 추론을 TensorRT FP16 기반 GPU 추론으로 전환했습니다.
+
+탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 [Relay Server](https://github.com/triton0305/edge-vision-relay-server)로 전달합니다.
+
+## Changes from Raspberry Pi
+
+| 항목 | Raspberry Pi Edge Vision | Jetson Edge Vision |
+|---|---|---|
+| 실행 장비 | Raspberry Pi 4 | NVIDIA Jetson Nano |
+| 추론 방식 | OpenCV DNN / CPU | TensorRT / CUDA GPU |
+| 모델 형식 | YOLO26n ONNX | YOLO26n TensorRT FP16 engine |
+| Detector | OpenCV DNN 기반 모델 로딩·추론 | TensorRT engine 로딩, CUDA 버퍼 관리·추론 |
+| 카메라 입력 | USB Webcam / V4L2 | USB Webcam / V4L2, YUYV 명시 |
+| 결과 화면 | VNC에서 실시간 탐지 표시 | TigerVNC에서 실시간 탐지 표시 |
+| 이미지 저장 | 최초 탐지 스냅샷 저장 | 실시간 화면 표시만 수행 |
+
+차량 클래스 필터링, Letterbox 전처리, Class-aware NMS, 객체별 JSON 형식, Message Queue, TCP length-prefix 및 ACK/Retry 구조는 유지했습니다. 기존 서버가 같은 프로토콜로 데이터를 수신할 수 있도록 구성했습니다.
+
+Client는 객체별 Detection 이력 생성과 전송을 담당하며, 데이터 저장과 시간 구간별 집계는 서버에서 처리합니다. Detection 건수는 고유 차량 수나 통과 교통량을 의미하지 않습니다.
 
 ## 최종 Runtime
 
