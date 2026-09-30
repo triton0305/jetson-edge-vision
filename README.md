@@ -4,7 +4,9 @@
 
 기존 Camera → Detection → Queue → TCP/ACK 구조를 유지하면서, OpenCV DNN의 CPU 추론을 TensorRT FP16 기반 GPU 추론으로 전환했습니다.
 
-주 목적은 Jetson에서 생성한 차량 Detection 이력을 상대 서버로 전달하는 것입니다. 탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 TCP/ACK로 전송합니다.
+주 목적은 Jetson에서 생성한 차량 Detection 이력을 상대 서버로 전달하는 것입니다.
+
+탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 TCP/ACK로 전송합니다.
 
 별도 [Relay Server](https://github.com/triton0305/edge-vision-relay-server)는 배포 편의를 위해 직접 만든 보조 서버입니다. 이 Client는 정해진 TCP/JSON/ACK 규격을 따르는 상대 서버에 연결해 사용합니다.
 
