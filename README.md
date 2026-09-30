@@ -2,7 +2,9 @@
 
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)을 Jetson Nano 환경으로 확장한 C++17 차량 인지 Client입니다. 기존 Camera → Detection → Queue → TCP/ACK 구조를 유지하면서, OpenCV DNN의 CPU 추론을 TensorRT FP16 기반 GPU 추론으로 전환했습니다.
 
-탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 [Relay Server](https://github.com/triton0305/edge-vision-relay-server)로 전달합니다.
+주 목적은 Jetson에서 생성한 차량 Detection 이력을 상대 서버로 전달하는 것입니다. 탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 TCP/ACK로 전송합니다.
+
+별도 [Relay Server](https://github.com/triton0305/edge-vision-relay-server)는 배포 편의를 위해 직접 만든 보조 서버입니다. 이 Client는 정해진 TCP/JSON/ACK 규격을 따르는 상대 서버에 연결해 사용합니다.
 
 ## Changes from Raspberry Pi
 
@@ -18,7 +20,7 @@
 
 차량 클래스 필터링, Letterbox 전처리, Class-aware NMS, 객체별 JSON 형식, Message Queue, TCP length-prefix 및 ACK/Retry 구조는 유지했습니다. 기존 서버가 같은 프로토콜로 데이터를 수신할 수 있도록 구성했습니다.
 
-Client는 객체별 Detection 이력 생성과 전송을 담당하며, 데이터 저장과 시간 구간별 집계는 서버에서 처리합니다. Detection 건수는 고유 차량 수나 통과 교통량을 의미하지 않습니다.
+Client는 객체별 Detection 이력 생성과 상대 서버로의 전송을 담당합니다. 이후 데이터 저장과 시간 구간별 집계는 수신 서버의 책임입니다. Detection 건수는 고유 차량 수나 통과 교통량을 의미하지 않습니다.
 
 ## 최종 Runtime
 
@@ -26,7 +28,7 @@ Client는 객체별 Detection 이력 생성과 전송을 담당하며, 데이터
 USB Webcam → OpenCV/V4L2 Capture → Letterbox 640x640
 → YOLO26n TensorRT FP16 → Vehicle Filtering → Class-aware NMS
 → Detection → vision JSON → Message Queue → Network Worker
-→ TCP/ACK/Retry → Relay Server → SQLite
+→ TCP/ACK/Retry → 상대 서버
 ```
 
 - `/dev/video0`, YUYV 640×480@30 요청. 실제 처리 FPS는 추론 및 화면 표시 시간에 따라 달라집니다.
@@ -113,17 +115,17 @@ strings /opt/edge_vision/bin/edge_vision | grep -F /opt/edge_vision/models/yolo2
 
 사용자가 사전 확인한 환경: edgevision의 V4L2 10-frame streaming, TigerVNC `:1` 인증, jetson 계정의 약 54ms TensorRT 추론, WSL Relay Server의 `0.0.0.0:5000` 기동. 이는 이번 정리 후 전체 E2E 재검증 결과와 구분합니다.
 
-1. WSL Relay Server 실행 후 Jetson에서 접근 가능한 서버 IP와 포트로 `./pirun <server_ip> <server_port>` 실행.
+1. 상대 서버 또는 보조 Relay Server 실행 후 Jetson에서 접근 가능한 서버 IP와 포트로 `./pirun <server_ip> <server_port>` 실행.
 2. TigerVNC의 실시간 Detection 화면 확인.
 3. 차량 탐지 시 `ACK OK`와 서버 로그 확인.
-4. Relay Server의 SQLite `detections` 저장 및 message_id 확인.
+4. 상대 서버의 수신·처리 결과와 message_id 확인. 보조 Relay Server를 사용하는 경우 SQLite 저장 결과도 확인.
 5. `git diff --check`, `git diff`, `git status --short` 확인.
 
-서버 코드는 별도 [Relay Server](https://github.com/triton0305/edge-vision-relay-server) 저장소에서 관리합니다. WSL의 `0.0.0.0`은 바인딩 주소이므로 클라이언트 인자에는 실제 접근 가능한 IP를 사용합니다.
+상대 서버 코드는 이 저장소에 포함되지 않습니다. 배포 편의를 위해 직접 만든 보조 서버는 별도 [Relay Server](https://github.com/triton0305/edge-vision-relay-server) 저장소에서 관리합니다. WSL의 `0.0.0.0`은 바인딩 주소이므로 클라이언트 인자에는 실제 접근 가능한 IP를 사용합니다.
 
 `test/bus.jpg`, `test/bus_result.jpg`, `test/camera_result.jpg`는 기존 수동 검증 자료로 보존하며 Runtime에서 읽거나 생성하지 않습니다. `src`/`include`의 vision, protocol, network, core 디렉터리는 각각 탐지, 직렬화, 전달, 설정·ID·성능 진단을 담당합니다.
 
 ## Related Projects
 
 - [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision): OpenCV DNN / CPU 기반 원본 프로젝트
-- [Edge Vision Relay Server](https://github.com/triton0305/edge-vision-relay-server): TCP 수신, JSON 검증, SQLite 저장 및 ACK 처리
+- [Edge Vision Relay Server](https://github.com/triton0305/edge-vision-relay-server): 배포 편의를 위해 직접 만든 보조 서버. TCP 수신, JSON 검증, SQLite 저장 및 ACK 처리
