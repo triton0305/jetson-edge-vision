@@ -17,6 +17,7 @@ bool Camera::open()
     return false;
   }
 
+  capture_.set(cv::CAP_PROP_FOURCC, static_cast<int>('Y' | ('U' << 8) | ('Y' << 16) | ('V' << 24)));
   capture_.set(cv::CAP_PROP_FRAME_WIDTH, width_);
   capture_.set(cv::CAP_PROP_FRAME_HEIGHT, height_);
   capture_.set(cv::CAP_PROP_FPS, fps_);

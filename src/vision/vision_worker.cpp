@@ -1,27 +1,26 @@
 #include "vision/vision_worker.hpp"
 
 #include <chrono>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <iomanip>
-#include <sstream>
 
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include "core/detection_result.hpp"
 #include "core/message_id.hpp"
-#include "vision/camera.hpp"
-#include "vision/preprocessor.hpp"
-#include "vision/detector.hpp"
-#include "vision/postprocessor.hpp"
-#include "protocol/serializer.hpp"
+#include "core/metrics.hpp"
 #include "network/message_queue.hpp"
 #include "network/network_worker.hpp"
-#include "core/metrics.hpp"
 #include "protocol/outbound_message.hpp"
+#include "protocol/serializer.hpp"
+#include "vision/camera.hpp"
+#include "vision/detector.hpp"
+#include "vision/postprocessor.hpp"
+#include "vision/preprocessor.hpp"
 
 namespace
 {
@@ -60,8 +59,6 @@ void VisionWorker::run()
 {
   std::uint64_t frame_id = 0;
   std::uint64_t sequence = 0;
-  bool snapshot_saved = false;
-
   std::cout << "Edge Vision loop started\n";
   std::cout << "Boot ID: " << boot_id_ << '\n';
   std::cout << "Press Ctrl+C to quit\n";
@@ -92,11 +89,15 @@ void VisionWorker::run()
     const auto inference_end = std::chrono::steady_clock::now();
 
     const double inference_ms =
-      std::chrono::duration<double, std::milli>(inference_end - inference_start).count();
+      std::chrono::duration<double, std::milli>(
+        inference_end - inference_start).count();
 
     std::vector<Detection> detections = postprocessor_.process(
-      outputs, frame.cols, frame.rows,
-      preprocessor_.inputWidth(), preprocessor_.inputHeight());
+      outputs,
+      frame.cols,
+      frame.rows,
+      preprocessor_.inputWidth(),
+      preprocessor_.inputHeight());
 
     cv::Mat display_frame = frame.clone();
 
@@ -134,64 +135,22 @@ void VisionWorker::run()
       running_ = 0;
     }
 
-    if (!snapshot_saved && !detections.empty())
-    {
-      cv::Mat snapshot = frame.clone();
-
-      for (const Detection& detection : detections)
-      {
-        const BoundingBox& bbox = detection.bbox;
-
-        cv::rectangle(
-          snapshot,
-          cv::Rect(bbox.x, bbox.y, bbox.width, bbox.height),
-          cv::Scalar(0, 255, 0),
-          2);
-
-        std::ostringstream label;
-        label << detection.class_name << ' '
-              << std::fixed << std::setprecision(2)
-              << detection.confidence;
-
-        const int label_y = bbox.y > 20 ? bbox.y - 8 : bbox.y + 20;
-
-        cv::putText(
-          snapshot,
-          label.str(),
-          cv::Point(bbox.x, label_y),
-          cv::FONT_HERSHEY_SIMPLEX,
-          0.6,
-          cv::Scalar(0, 255, 0),
-          2);
-      }
-
-      if (cv::imwrite("test/detection_check.jpg", snapshot))
-      {
-        std::cout << "Detection snapshot saved: test/detection_check.jpg\n";
-        snapshot_saved = true;
-      }
-      else
-      {
-        std::cerr << "Failed to save detection snapshot\n";
-      }
-    }
-
     for (const Detection& detection : detections)
     {
       ++sequence;
 
-      const std::string message_id = createMessageId(boot_id_, sequence);
+      const std::string message_id =
+        createMessageId(boot_id_, sequence);
 
       DetectionResult result;
       result.frame_id = current_frame_id;
       result.timestamp_ms = timestamp_ms;
 
-      std::string message = serializer_.serialize(result, detection, message_id);
+      std::string message =
+        serializer_.serialize(result, detection, message_id);
 
       if (!message.empty())
       {
-        std::cout << message << '\n';
-
         if (!message_queue_.push({message_id, message}))
         {
           std::cerr << "Failed to enqueue message\n";
@@ -206,4 +165,5 @@ void VisionWorker::run()
       message_queue_.size(),
       message_queue_.droppedCount());
   }
+
 }

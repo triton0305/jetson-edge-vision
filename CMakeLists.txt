@@ -36,7 +36,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(OpenCV REQUIRED COMPONENTS
     core
     imgproc
-    imgcodecs
     highgui
     videoio
     dnn
@@ -49,12 +48,8 @@ find_package(Threads REQUIRED)
 # =============================================================================
 
 if(NOT DEFINED MODEL_PATH)
-  set(MODEL_PATH "${CMAKE_SOURCE_DIR}/models/yolo26n.onnx")
+  set(MODEL_PATH "${CMAKE_SOURCE_DIR}/models/yolo26n_fp16.engine")
 endif()
-
-set(TEST_IMAGE_PATH
-    "${CMAKE_SOURCE_DIR}/test/bus.jpg"
-)
 
 if(NOT DEFINED BOOT_ID_PATH)
   set(BOOT_ID_PATH "${CMAKE_SOURCE_DIR}/boot_id.dat")
@@ -79,8 +74,6 @@ set(SOURCES
     src/network/ack.cpp
     src/network/message_queue.cpp
     src/network/network_worker.cpp
-    src/vision/tracker.cpp
-    src/vision/traffic_counter.cpp
 )
 
 # =============================================================================
@@ -99,6 +92,8 @@ target_include_directories(edge_vision
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${OpenCV_INCLUDE_DIRS}
+        /usr/include/aarch64-linux-gnu
+        /usr/local/cuda/include
 )
 
 # =============================================================================
@@ -109,6 +104,8 @@ target_link_libraries(edge_vision
     PRIVATE
         ${OpenCV_LIBS}
         Threads::Threads
+        nvinfer
+        cudart
 )
 
 # =============================================================================
@@ -118,7 +115,6 @@ target_link_libraries(edge_vision
 target_compile_definitions(edge_vision
     PRIVATE
         MODEL_PATH="${MODEL_PATH}"
-        TEST_IMAGE_PATH="${TEST_IMAGE_PATH}"
         BOOT_ID_FILE_PATH="${BOOT_ID_PATH}"
 )
 
@@ -164,3 +160,5 @@ if(ENABLE_SANITIZERS)
             -fsanitize=address,undefined
     )
 endif()
+
+install(TARGETS edge_vision RUNTIME DESTINATION bin)

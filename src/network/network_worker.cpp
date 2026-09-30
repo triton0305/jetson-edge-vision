@@ -25,27 +25,18 @@ void NetworkWorker::run()
   {
     const auto delivery_start = std::chrono::steady_clock::now();
 
-    const bool reliable = message.delivery_policy == DeliveryPolicy::Reliable;
     bool ack_received = false;
 
-    for (int attempt = 0; reliable || attempt <= Config::MAX_RETRY_COUNT; ++attempt)
+    for (int attempt = 0; attempt <= Config::MAX_RETRY_COUNT; ++attempt)
     {
       if (queue_.isClosed())
         return;
 
       if (attempt > 0)
       {
-        if (reliable)
-        {
-          std::cerr << "Reliable retry " << attempt << ": "
-                    << message.message_id << '\n';
-        }
-        else
-        {
-          std::cerr << "Retry " << attempt << '/'
-                    << Config::MAX_RETRY_COUNT << ": "
-                    << message.message_id << '\n';
-        }
+        std::cerr << "Retry " << attempt << '/'
+                  << Config::MAX_RETRY_COUNT << ": "
+                  << message.message_id << '\n';
       }
 
       if (!tcp_client_.isConnected())

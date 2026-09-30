@@ -12,8 +12,6 @@ class Serializer;
 class MessageQueue;
 class NetworkWorker;
 class Metrics;
-class PostProcessor;
-class Serializer;
 
 class VisionWorker
 {

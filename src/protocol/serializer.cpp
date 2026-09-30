@@ -29,24 +29,3 @@ std::string Serializer::serialize(
 
   return json.dump();
 }
-
-std::string Serializer::serializeTrafficCount(
-  const TrafficCount& count,
-  const std::string& message_id) const
-{
-  nlohmann::json json;
-
-  json["version"] = Config::PROTOCOL_VERSION;
-  json["type"] = "traffic_count";
-  json["device_id"] = Config::DEVICE_ID;
-  json["message_id"] = message_id;
-
-  json["data"]["period_start_ms"] = count.period_start_ms;
-  json["data"]["period_end_ms"] = count.period_end_ms;
-  json["data"]["car_count"] = count.car_count;
-  json["data"]["motorcycle_count"] = count.motorcycle_count;
-  json["data"]["bus_count"] = count.bus_count;
-  json["data"]["truck_count"] = count.truck_count;
-
-  return json.dump();
-}

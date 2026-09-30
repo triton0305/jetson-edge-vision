@@ -4,7 +4,6 @@
 #include <string>
 
 #include "core/detection_result.hpp"
-#include "core/traffic_count.hpp"
 
 class Serializer
 {
@@ -13,10 +12,7 @@ public:
     const DetectionResult& result,
     const Detection& detection,
     const std::string& message_id) const;
-    
-  std::string serializeTrafficCount(
-    const TrafficCount& count,
-    const std::string& message_id) const;  
+
 };
 
 

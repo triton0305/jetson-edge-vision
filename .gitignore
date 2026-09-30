@@ -9,3 +9,7 @@ build-deploy/
 *.pt
 *.onnx
 boot_id.dat
+
+*.engine
+test/detection_demo.avi
+test/detection_check.jpg
