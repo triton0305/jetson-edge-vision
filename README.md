@@ -1,8 +1,5 @@
 # Jetson Edge Vision
 
-**Jetson 포팅 및 개발:** 2026.09.30  
-**기반 프로젝트 개발:** 2026.09.21 ~ 2026.09.28 (Raspberry Pi Edge Vision)
-
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)을 Jetson Nano 환경으로 확장한 C++17 차량 인지 Client입니다. 기존 Camera → Detection → Queue → TCP/ACK 구조를 유지하면서, OpenCV DNN의 CPU 추론을 TensorRT FP16 기반 GPU 추론으로 전환했습니다.
 
 주 목적은 Jetson에서 생성한 차량 Detection 이력을 상대 서버로 전달하는 것입니다. 탐지 객체마다 `vision` JSON을 생성하고 별도 네트워크 스레드에서 TCP/ACK로 전송합니다.
