@@ -154,6 +154,80 @@ Raspberry Pi 4 CPU 환경에서 측정한 결과입니다. 실제 값은 장면�
 | Effective FPS | 약 2.2–2.34 FPS |
 | Inference Latency | 약 405–425 ms |
 
+## Engineering Decisions & Troubleshooting
+
+### Reliable TCP Delivery
+
+TCP는 메시지 경계를 보장하지 않으므로 JSON payload 앞에 4-byte big-endian length-prefix를 추가하고, partial read/write에 대응하도록 송수신을 구현했습니다.
+
+ACK 유실로 동일 Detection이 재전송될 수 있기 때문에 Retry 시 새로운 메시지를 생성하지 않고 동일한 `message_id`와 payload를 유지합니다. Relay Server에서는 `message_id`를 idempotency key로 사용하여 중복 저장을 방지합니다.
+
+```text
+Detection
+→ JSON
+→ 4-byte Length Prefix
+→ TCP
+→ Server Validation / SQLite
+→ ACK
+
+ACK Timeout / Disconnect
+→ Reconnect
+→ Same message_id / Same payload Retry
+```
+
+동일 `message_id`와 동일 payload가 다시 도착하면 정상적인 Retry로 처리하고, 동일 `message_id`에 다른 데이터가 들어오면 `MESSAGE_ID_CONFLICT`로 구분합니다. ACK는 DB 반영 또는 기존 데이터 확인 이후 전송하도록 하여 ACK 성공과 실제 저장 상태가 일치하도록 구성했습니다.
+
+### Vision / Network Fault Isolation
+
+초기에는 Client 시작 시 Relay Server에 연결할 수 없으면 Vision Runtime까지 종료될 수 있었습니다. Camera와 YOLO 동작이 Network 상태에 종속되지 않도록 Vision 처리와 Network 전송을 분리했습니다.
+
+```text
+Vision Worker
+Camera → YOLO → Detection
+             ↓
+       Message Queue
+             ↓
+       Network Worker
+             ↓
+      TCP / ACK / Retry
+```
+
+Relay Server가 실행되지 않았거나 연결이 끊어진 경우에도 Vision 처리는 계속되며, Network Worker가 별도로 재연결을 시도합니다. 이를 통해 Network 장애가 Camera 및 Inference 동작 전체로 전파되지 않도록 했습니다.
+
+### Traffic Counting Experiment and Scope Redesign
+
+반복되는 Detection 데이터를 줄이고 차량 통과량을 계산하기 위해 Tracker와 Line Crossing 기반의 `traffic_count`를 실험적으로 구현했습니다.
+
+```text
+Detection
+→ Tracker
+→ track_id
+→ Line Crossing
+→ 5-second traffic_count
+```
+
+실제 Raspberry Pi 환경에서 검증한 결과, 제한된 Camera FOV와 낮은 처리 FPS 환경에서는 연속 Tracking과 Line Crossing 조건을 안정적으로 유지하기 어려웠고 `traffic_count`가 기대한 형태로 생성되지 않았습니다.
+
+이를 계기로 Detection 데이터와 Traffic Count가 서로 다른 의미를 가진다는 점을 다시 검토했습니다. 또한 시간 구간이나 집계 방식이 변경될 때마다 Edge Client의 로직까지 변경하는 구조보다, Client는 원본 Detection을 전달하고 저장된 데이터를 기반으로 필요한 통계를 후처리하는 구조가 확장에 더 적합하다고 판단했습니다.
+
+최종 Runtime에서는 Tracker, Line Crossing, `traffic_count`를 제외하고 다음과 같이 구조를 단순화했습니다.
+
+```text
+Raspberry Pi Client
+Camera
+→ YOLO Detection
+→ vision JSON
+→ Message Queue
+→ TCP / ACK
+
+Relay Server
+vision 저장
+→ timestamp_ms 기반 후처리
+→ 시간 구간 / 차종별 Detection 통계
+```
+
+이를 통해 Edge Client는 Detection과 전송에 집중하고, 집계 기준의 변경은 저장된 Detection 데이터를 활용할 수 있도록 구성했습니다.
+
 ## Build
 
 ### Requirements
