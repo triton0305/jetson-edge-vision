@@ -28,6 +28,20 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 별도 네�
 
 Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` 프로토콜·ACK/Retry 구조는 유지했습니다.
 
+## Performance
+
+동일 장소·촬영 환경에서 Raspberry Pi와 Jetson Nano의 실행 성능을 비교했습니다.
+
+| 지표 | Raspberry Pi 4 | Jetson Nano |
+|---|---|---|
+| 추론 방식 | OpenCV DNN / CPU | TensorRT FP16 / GPU |
+| Effective FPS | 약 2.2~2.3 FPS | 약 7.4 FPS |
+| 평균 추론 시간 | 약 410~490 ms | 약 54.5 ms |
+
+기존 Raspberry Pi 측정값 대비 처리 FPS는 약 3.2~3.4배 증가했고, 추론 시간은 약 87~89% 감소했습니다.
+
+Effective FPS는 영상 처리 속도이며 서버 전달 처리량과 구분합니다. 두 측정은 동일 장소의 실시간 카메라 영상을 사용했습니다.
+
 ## Architecture
 
 | Stage | Flow |
@@ -193,7 +207,7 @@ DISPLAY=:1 ./pirun <server_ip> <server_port>
 3. 실시간 탐지 화면과 ACK OK 확인
 4. 서버 수신·처리 결과 확인
 
-보조 Relay Server를 사용하는 경우 SQLite 저장도 확인합니다. 동일 조건의 Pi / Jetson 성능 비교 자료는 아직 포함하지 않습니다.
+보조 Relay Server를 사용하는 경우 SQLite 저장도 확인합니다.
 
 ## Related Projects
 
