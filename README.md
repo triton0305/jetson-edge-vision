@@ -35,10 +35,10 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` 프로토콜·AC
 | 지표 | Raspberry Pi 4 | Jetson Nano |
 |---|---|---|
 | 추론 방식 | OpenCV DNN / CPU | TensorRT FP16 / GPU |
-| Effective FPS | 약 2.2~2.3 FPS | 약 7.4 FPS |
-| 평균 추론 시간 | 약 410~490 ms | 약 54.5 ms |
+| Effective FPS | 약 2.2–2.3 FPS | 약 7.4 FPS |
+| 평균 추론 시간 | 약 410–490 ms | 약 54.5 ms |
 
-기존 Raspberry Pi 측정값 대비 처리 FPS는 약 3.2~3.4배 증가했고, 추론 시간은 약 87~89% 감소했습니다.
+기존 Raspberry Pi 측정값 대비 처리 FPS는 약 3.2–3.4배 증가했고, 추론 시간은 약 87–89% 감소했습니다.
 
 Effective FPS는 영상 처리 속도이며 서버 전달 처리량과 구분합니다. 두 측정은 동일 장소의 실시간 카메라 영상을 사용했습니다.
 
