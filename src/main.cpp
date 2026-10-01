@@ -1,22 +1,27 @@
 #include <csignal>
 #include <cstdint>
 #include <exception>
+#include <stdexcept>
 #include <iostream>
 #include <string>
-#include <thread>
+#include <opencv2/highgui.hpp>
 
 #include "core/boot_id.hpp"
-#include "vision/camera.hpp"
 #include "core/config.hpp"
-#include "vision/detector.hpp"
-#include "network/message_queue.hpp"
 #include "core/metrics.hpp"
-#include "network/network_worker.hpp"
+#include "core/runtime_state.hpp"
+
+#include "vision/camera.hpp"
+#include "vision/detector.hpp"
 #include "vision/postprocessor.hpp"
 #include "vision/preprocessor.hpp"
-#include "protocol/serializer.hpp"
-#include "network/tcp_client.hpp"
 #include "vision/vision_worker.hpp"
+
+#include "network/message_queue.hpp"
+#include "network/network_worker.hpp"
+#include "network/tcp_client.hpp"
+
+#include "protocol/serializer.hpp"
 
 volatile std::sig_atomic_t running = 1;
 
@@ -25,7 +30,7 @@ void handleSignal(int)
   running = 0;
 }
 
-int main(int argc, char* argv[])
+int runApplication(int argc, char* argv[])
 {
   std::signal(SIGINT, handleSignal);
   std::signal(SIGTERM, handleSignal);
@@ -41,7 +46,11 @@ int main(int argc, char* argv[])
 
   try
   {
-    server_port = std::stoi(argv[2]);
+    std::size_t consumed = 0;
+    const std::string port_text = argv[2];
+    server_port = std::stoi(port_text, &consumed);
+    if (consumed != port_text.size())
+      throw std::invalid_argument("Trailing characters in server port");
   }
   catch (const std::exception&)
   {
@@ -64,8 +73,10 @@ int main(int argc, char* argv[])
   Serializer serializer;
   TcpClient tcp_client(server_ip, server_port);
   Metrics metrics;
+  RuntimeState runtime_state;
   MessageQueue message_queue(Config::MAX_QUEUE_SIZE);
-  NetworkWorker network_worker(message_queue, tcp_client, metrics);
+  NetworkWorker network_worker(
+    message_queue, tcp_client, runtime_state, metrics);
 
   if (!camera.open())
   {
@@ -79,9 +90,6 @@ int main(int argc, char* argv[])
     return 1;
   }
 
-  if (!tcp_client.connectToServer())
-    std::cerr << "Initial server connection failed; retrying in network worker\n";
-
   std::uint64_t boot_id = 0;
 
   if (!loadAndIncrementBootId(boot_id))
@@ -92,21 +100,38 @@ int main(int argc, char* argv[])
 
   VisionWorker vision_worker(
     camera, preprocessor, detector, postprocessor,
-    serializer, message_queue, network_worker, metrics,
+    serializer, message_queue, runtime_state, metrics,
     boot_id, running);
 
-  std::thread network_thread(&NetworkWorker::run, &network_worker);
-  vision_worker.run();
-
-  message_queue.close();
-
-  if (network_thread.joinable())
-    network_thread.join();
-
-  tcp_client.disconnect();
+  int exit_code = 0;
+  try
+  {
+    network_worker.start();
+    vision_worker.run();
+  }
+  catch (const std::exception& error)
+  {
+    std::cerr << "Runtime error: " << error.what() << '\n';
+    exit_code = 1;
+  }
+  network_worker.stop();
   camera.release();
+  cv::destroyAllWindows();
 
   std::cout << "Edge Vision loop stopped\n";
 
-  return 0;
+  return exit_code;
+}
+
+int main(int argc, char* argv[])
+{
+  try
+  {
+    return runApplication(argc, argv);
+  }
+  catch (const std::exception& error)
+  {
+    std::cerr << "Initialization error: " << error.what() << '\n';
+    return 1;
+  }
 }

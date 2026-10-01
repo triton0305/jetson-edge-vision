@@ -13,3 +13,12 @@ boot_id.dat
 *.engine
 test/detection_demo.avi
 test/detection_check.jpg
+
+# Runtime / validation artifacts
+logs/
+*.log
+*.trace
+*.pcap
+*.pcapng
+*.pidartifacts/
+artifacts/

@@ -10,8 +10,8 @@ class Detector;
 class PostProcessor;
 class Serializer;
 class MessageQueue;
-class NetworkWorker;
 class Metrics;
+class RuntimeState;
 
 class VisionWorker
 {
@@ -23,7 +23,7 @@ public:
     PostProcessor& postprocessor,
     Serializer& serializer,
     MessageQueue& message_queue,
-    NetworkWorker& network_worker,
+    RuntimeState& runtime_state,
     Metrics& metrics,
     std::uint64_t boot_id,
     volatile std::sig_atomic_t& running);
@@ -37,7 +37,7 @@ private:
   PostProcessor& postprocessor_;
   Serializer& serializer_;
   MessageQueue& message_queue_;
-  NetworkWorker& network_worker_;
+  RuntimeState& runtime_state_;
   Metrics& metrics_;
   std::uint64_t boot_id_;
   volatile std::sig_atomic_t& running_;

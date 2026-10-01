@@ -63,6 +63,8 @@ set(SOURCES
     src/main.cpp
     src/core/boot_id.cpp
     src/core/message_id.cpp
+    src/core/runtime_state.cpp
+    src/core/metrics.cpp
     src/vision/vision_worker.cpp
     src/vision/camera.cpp
     src/vision/preprocessor.cpp
@@ -70,8 +72,6 @@ set(SOURCES
     src/vision/postprocessor.cpp
     src/protocol/serializer.cpp
     src/network/tcp_client.cpp
-    src/core/metrics.cpp
-    src/network/ack.cpp
     src/network/message_queue.cpp
     src/network/network_worker.cpp
 )
@@ -162,3 +162,32 @@ if(ENABLE_SANITIZERS)
 endif()
 
 install(TARGETS edge_vision RUNTIME DESTINATION bin)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(network_integration_test
+    tests/network_integration.cpp
+    src/network/tcp_client.cpp
+    src/network/message_queue.cpp
+    src/network/network_worker.cpp
+    src/core/runtime_state.cpp
+    src/core/metrics.cpp
+    src/core/message_id.cpp
+    src/protocol/serializer.cpp)
+  target_include_directories(network_integration_test PRIVATE include)
+  target_compile_definitions(network_integration_test PRIVATE BOOT_ID_FILE_PATH="unused")
+  target_compile_options(network_integration_test PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(network_integration_test PRIVATE Threads::Threads)
+  add_test(NAME network_integration COMMAND network_integration_test)
+  set_tests_properties(network_integration PROPERTIES TIMEOUT 30)
+endif()
+
+if(BUILD_TESTING)
+  add_executable(network_transport_test tests/network_transport.cpp src/network/tcp_client.cpp)
+  target_include_directories(network_transport_test PRIVATE include)
+  target_compile_options(network_transport_test PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(network_transport_test PRIVATE Threads::Threads)
+  target_link_options(network_transport_test PRIVATE -Wl,--wrap=send)
+  add_test(NAME network_transport COMMAND network_transport_test)
+  set_tests_properties(network_transport PROPERTIES TIMEOUT 20)
+endif()

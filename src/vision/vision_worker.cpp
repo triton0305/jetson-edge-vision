@@ -13,10 +13,13 @@
 #include "core/detection_result.hpp"
 #include "core/message_id.hpp"
 #include "core/metrics.hpp"
+#include "core/runtime_state.hpp"
+
 #include "network/message_queue.hpp"
-#include "network/network_worker.hpp"
+
 #include "protocol/outbound_message.hpp"
 #include "protocol/serializer.hpp"
+
 #include "vision/camera.hpp"
 #include "vision/detector.hpp"
 #include "vision/postprocessor.hpp"
@@ -38,7 +41,7 @@ VisionWorker::VisionWorker(
   PostProcessor& postprocessor,
   Serializer& serializer,
   MessageQueue& message_queue,
-  NetworkWorker& network_worker,
+  RuntimeState& runtime_state,
   Metrics& metrics,
   std::uint64_t boot_id,
   volatile std::sig_atomic_t& running)
@@ -48,7 +51,7 @@ VisionWorker::VisionWorker(
     postprocessor_(postprocessor),
     serializer_(serializer),
     message_queue_(message_queue),
-    network_worker_(network_worker),
+    runtime_state_(runtime_state),
     metrics_(metrics),
     boot_id_(boot_id),
     running_(running)
@@ -65,11 +68,9 @@ void VisionWorker::run()
 
   while (running_)
   {
-    if (network_worker_.hasFailed())
-    {
-      std::cerr << "Network worker failed\n";
-      break;
-    }
+    // Capture the admission epoch before capture/inference. A frame spanning
+    // PAUSE/RESUME is never treated as a new post-resume detection.
+    const auto frame_state = runtime_state_.snapshot();
 
     cv::Mat frame;
 
@@ -135,35 +136,43 @@ void VisionWorker::run()
       running_ = 0;
     }
 
-    for (const Detection& detection : detections)
+    if (running_ && frame_state.data_state == DataState::RUNNING)
     {
-      ++sequence;
-
-      const std::string message_id =
-        createMessageId(boot_id_, sequence);
-
-      DetectionResult result;
-      result.frame_id = current_frame_id;
-      result.timestamp_ms = timestamp_ms;
-
-      std::string message =
-        serializer_.serialize(result, detection, message_id);
-
-      if (!message.empty())
+      runtime_state_.produce(frame_state.epoch, [&]
       {
-        if (!message_queue_.push({message_id, message}))
+        for (const Detection& detection : detections)
         {
-          std::cerr << "Failed to enqueue message\n";
-          running_ = 0;
-          break;
+          ++sequence;
+
+          const std::string message_id =
+            createMessageId(boot_id_, sequence);
+
+          DetectionResult result;
+          result.frame_id = current_frame_id;
+          result.timestamp_ms = timestamp_ms;
+
+          std::string message =
+            serializer_.serialize(result, detection, message_id);
+
+          if (!message.empty())
+          {
+            metrics_.recordProduced();
+            if (!message_queue_.push({message_id, message, frame_state.epoch}))
+            {
+              std::cerr << "Failed to enqueue message\n";
+              running_ = 0;
+              break;
+            }
+          }
         }
-      }
+      });
     }
 
     metrics_.recordFrame(
       inference_ms,
       message_queue_.size(),
-      message_queue_.droppedCount());
+      message_queue_.droppedCount(),
+      runtime_state_.snapshot());
   }
 
 }

@@ -1,124 +1,170 @@
 #include "network/network_worker.hpp"
+#include "core/config.hpp"
 
 #include <chrono>
 #include <iostream>
-#include <string>
-#include <thread>
+#include <nlohmann/json.hpp>
 
-#include "network/ack.hpp"
-#include "core/config.hpp"
-#include "protocol/outbound_message.hpp"
-
-NetworkWorker::NetworkWorker(
-  MessageQueue& queue,
-  TcpClient& tcp_client,
-  Metrics& metrics)
-  : queue_(queue), tcp_client_(tcp_client), metrics_(metrics)
+NetworkWorker::NetworkWorker(MessageQueue& queue, TcpClient& client,
+                             RuntimeState& state, Metrics& metrics)
+  : queue_(queue), tcp_client_(client), runtime_state_(state), metrics_(metrics)
 {
 }
 
-void NetworkWorker::run()
+NetworkWorker::~NetworkWorker()
 {
-  OutboundMessage message;
+  stop();
+}
 
-  while (queue_.pop(message))
+void NetworkWorker::start()
+{
+  try
   {
-    const auto delivery_start = std::chrono::steady_clock::now();
-
-    bool ack_received = false;
-
-    for (int attempt = 0; attempt <= Config::MAX_RETRY_COUNT; ++attempt)
-    {
-      if (queue_.isClosed())
-        return;
-
-      if (attempt > 0)
-      {
-        std::cerr << "Retry " << attempt << '/'
-                  << Config::MAX_RETRY_COUNT << ": "
-                  << message.message_id << '\n';
-      }
-
-      if (!tcp_client_.isConnected())
-      {
-        if (!tcp_client_.connectToServer())
-        {
-          std::cerr << "Failed to reconnect to server\n";
-          std::this_thread::sleep_for(std::chrono::milliseconds(Config::RECONNECT_DELAY_MS));
-          continue;
-        }
-      }
-
-      if (!tcp_client_.sendData(message.payload))
-      {
-        std::cerr << "Failed to send message: "
-                  << message.message_id << '\n';
-
-        tcp_client_.disconnect();
-        continue;
-      }
-
-      std::string ack_message;
-
-      if (!tcp_client_.receiveData(ack_message))
-      {
-        std::cerr << "ACK receive failed: "
-                  << message.message_id << '\n';
-
-        tcp_client_.disconnect();
-        continue;
-      }
-
-      std::string error_code;
-      AckResult ack_result = checkAck(ack_message, message.message_id, error_code);
-
-      if (ack_result == AckResult::ServerError)
-      {
-        std::cerr << "Server error: " << error_code << '\n';
-        fail();
-        return;
-      }
-
-      if (ack_result == AckResult::Invalid)
-      {
-        std::cerr << "Failed to validate ACK\n";
-        fail();
-        return;
-      }
-
-      const auto delivery_end = std::chrono::steady_clock::now();
-
-      const double delivery_ms =
-        std::chrono::duration<double, std::milli>(
-          delivery_end - delivery_start).count();
-
-      metrics_.recordMessageDelivery(delivery_ms);
-
-      std::cout << "ACK OK: " << message.message_id << '\n';
-
-      ack_received = true;
-      break;
-    }
-
-    if (!ack_received)
-    {
-      std::cerr << "ACK retry limit exceeded: "
-                << message.message_id << '\n';
-
-      std::cerr << "Dropping undelivered best-effort message: "
-                << message.message_id << '\n';
-    }
+    tx_thread_ = std::thread(&NetworkWorker::transmit, this);
+    rx_thread_ = std::thread(&NetworkWorker::receive, this);
+  }
+  catch (...)
+  {
+    stop();
+    throw;
   }
 }
 
-bool NetworkWorker::hasFailed() const
+void NetworkWorker::stop()
 {
-  return failed_.load();
+  stopping_ = true;
+  runtime_state_.stop(queue_);
+  queue_.close();
+  wake_.notify_all();
+  tcp_client_.disconnect();
+  if (tx_thread_.joinable())
+    tx_thread_.join();
+  if (rx_thread_.joinable())
+    rx_thread_.join();
+  tcp_client_.disconnect();
+  runtime_state_.stop(queue_);
 }
 
-void NetworkWorker::fail()
+void NetworkWorker::lost()
 {
-  failed_.store(true);
+  runtime_state_.disconnected(queue_);
   tcp_client_.disconnect();
-  queue_.close();
+  std::cerr << "Pi Link DOWN: pi_connection_lost\n";
+}
+
+void NetworkWorker::transmit()
+{
+  try
+  {
+    OutboundMessage message;
+    while (queue_.pop(message))
+    {
+      std::lock_guard<std::mutex> gate(tx_gate_);
+      if (stopping_)
+        return;
+      if (!runtime_state_.canSend(message.epoch))
+      {
+        runtime_state_.discard();
+        continue;
+      }
+      // A frame admitted before PAUSE may already be in TCP; never replay it.
+      if (!tcp_client_.sendData(message.payload))
+      {
+        runtime_state_.discard();
+        lost();
+        continue;
+      }
+      metrics_.recordSent();
+    }
+  }
+  catch (const std::exception& error)
+  {
+    std::cerr << "Data TX error: " << error.what() << '\n';
+    stopping_ = true;
+    runtime_state_.stop(queue_);
+    queue_.close();
+    tcp_client_.disconnect();
+    wake_.notify_all();
+  }
+}
+
+void NetworkWorker::receive()
+{
+  try
+  {
+    while (!stopping_)
+    {
+      std::uint64_t session = 0;
+      {
+        std::lock_guard<std::mutex> gate(tx_gate_);
+        if (stopping_)
+          break;
+        if (tcp_client_.connectToServer())
+        {
+          if (stopping_)
+            break;
+          session = runtime_state_.connected(queue_);
+          std::cout << "Pi Link UP: pi_connection_restored; awaiting control\n";
+        }
+        else
+          runtime_state_.disconnected(queue_);
+      }
+      if (session != 0)
+      {
+        std::string payload;
+        while (!stopping_ && tcp_client_.receiveData(payload))
+        {
+          const auto json = nlohmann::json::parse(payload, nullptr, false);
+          if (!json.is_object() || !json.contains("version") ||
+              !json["version"].is_number_integer() || json["version"] != Config::PROTOCOL_VERSION ||
+              !json.contains("type") || json["type"] != "control" ||
+              !json.contains("device_id") || !json["device_id"].is_string() ||
+              !json.contains("message_id") || !json["message_id"].is_string() ||
+              !json.contains("data") || !json["data"].is_object())
+          {
+            std::cerr << "Ignoring invalid control envelope\n";
+            continue;
+          }
+          const auto& data = json["data"];
+          if (!data.contains("action") || !data["action"].is_string() ||
+              !data.contains("reason") || !data["reason"].is_string() ||
+              !data.contains("timestamp_ms") || !data["timestamp_ms"].is_number_integer())
+          {
+            std::cerr << "Ignoring invalid control data\n";
+            continue;
+          }
+          const std::string action = data["action"].get<std::string>();
+          const std::string reason = data["reason"].get<std::string>();
+          if (action != "pause" && action != "resume")
+          {
+            std::cerr << "Ignoring unknown control action\n";
+            continue;
+          }
+          // Resume waits for the previous admitted send to finish. Pause never
+          // waits for network I/O, so capture/inference remain independent.
+          std::unique_lock<std::mutex> gate(tx_gate_, std::defer_lock);
+          if (action == "resume")
+            gate.lock();
+          if (!stopping_ && runtime_state_.control(session, action == "resume", reason, queue_))
+            std::cout << "Control " << action << ": " << reason << '\n';
+        }
+        if (!stopping_)
+          runtime_state_.disconnected(queue_);
+        std::lock_guard<std::mutex> gate(tx_gate_);
+        if (!stopping_)
+          lost();
+      }
+      std::unique_lock<std::mutex> wait(wait_mutex_);
+      wake_.wait_for(wait, std::chrono::milliseconds(Config::RECONNECT_DELAY_MS),
+                     [this] { return stopping_.load(); });
+    }
+  }
+  catch (const std::exception& error)
+  {
+    std::cerr << "Control RX error: " << error.what() << '\n';
+    stopping_ = true;
+    runtime_state_.stop(queue_);
+    queue_.close();
+    tcp_client_.disconnect();
+  }
 }

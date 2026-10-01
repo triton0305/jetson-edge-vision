@@ -10,7 +10,7 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 별도 네�
 - YOLO26n TensorRT engine 기반 GPU 추론
 - Detection 1개당 `vision` JSON 및 `message_id` 생성
 - Message Queue / Network Worker 기반 영상 처리·송신 분리
-- 4-byte big-endian length-prefix, Partial read/write, ACK / Retry / Reconnect
+- 4-byte big-endian length-prefix, Partial read/write, full-duplex Control / Reconnect
 - 실시간 탐지 화면 및 FPS·추론 시간·Queue·Drop 측정
 - `/opt`, `/var/lib` 기반 운영 배포
 
@@ -26,7 +26,7 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 별도 네�
 | 이미지 저장 | 최초 탐지 스냅샷 | 실시간 표시만 수행 |
 | 잔존 코드 | 미사용 Tracker·traffic_count 소스 잔존 | 관련 소스 및 전용 전달 정책 제거 |
 
-Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` 프로토콜·ACK/Retry 구조는 유지했습니다.
+Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 유지합니다. Vision의 application ACK/Retry는 제거했습니다.
 
 ## Performance
 
@@ -48,17 +48,17 @@ Effective FPS는 영상 처리 속도이며 서버 전달 처리량과 구분합
 |---|---|
 | **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS |
 | **② Message Generation** | Detection → 객체별 vision JSON → Message Queue |
-| **③ Delivery** | Network Worker → TCP → 상대 서버 → ACK / Retry |
+| **③ Delivery** | Data TX → TCP :8000 → Pi Gateway → WSL :9000 |
 
 | Component | Responsibility |
 |---|---|
 | **Vision Client** | 프레임 획득, 전처리·추론·후처리, Detection 생성 및 전송 |
-| **수신 서버** | 수신 데이터 저장, 중복 처리 및 후처리 |
-| **보조 Relay Server** | JSON 검증, SQLite 저장 및 ACK 반환 |
+| **Pi Gateway** | Vision 전달, downstream Control 전달 |
+| **WSL Final Server** | 최종 데이터 처리 및 SQLite 저장 |
 
 ## Message Protocol
 
-TCP 메시지와 ACK는 `4-byte big-endian payload length + JSON` 형식입니다.
+Vision과 Control은 `4-byte big-endian payload length + JSON` 형식입니다.
 
 ```json
 {
@@ -78,7 +78,7 @@ TCP 메시지와 ACK는 `4-byte big-endian payload length + JSON` 형식입니�
 ```
 
 ```json
-{"version":1,"type":"ack","message_id":"vision-pi-01-000059-00000001","status":"ok"}
+{"version":1,"type":"control","device_id":"gateway","message_id":"control-1","data":{"timestamp_ms":1790580489875,"action":"resume","reason":"wsl_connection_restored"}}
 ```
 
 | 필드 | 기준 |
@@ -90,22 +90,31 @@ TCP 메시지와 ACK는 `4-byte big-endian payload length + JSON` 형식입니�
 
 현재 device_id는 `vision-pi-01`입니다. 여러 장비 운영 시 장비별 ID를 구분하고 기존 boot_id를 초기화하지 않습니다.
 
-## Reliability and Network Behavior
+## Network / Control
 
-| 항목 | 동작 |
-|---|---|
-| 수신 timeout | 1500ms / 블로킹 수신 호출 기준 |
-| 전달 시도 | 메시지당 최대 3회, 연결 실패 포함 |
-| 재연결 실패 | 1000ms 대기 |
-| 재전송 | 동일 message_id / payload 유지 |
-| Queue | 대기 최대 16개, 초과 시 가장 오래된 메시지 Drop |
-| 재시도 초과 | 해당 메시지 Drop |
-| 연결·수신 실패 | Vision Loop 계속 실행 |
-| 잘못된 ACK / Error ACK | Network Worker 실패 및 Vision Loop 종료 |
+Jetson은 Pi Gateway의 TCP 8000에 연결합니다. Pi는 WSL의 TCP 9000으로 전달합니다.
+하나의 연결에서 Data TX가 Vision을 보내고 Control RX가 Control을 받습니다.
+Control RX가 연결과 재연결을 관리하므로 Queue가 비어 있거나 PAUSED여도 재연결합니다.
 
-Error ACK는 `status=error`와 `error_code`가 필요합니다. 중복 저장 방지는 수신 서버에서 구현합니다.
+- 시작과 재연결 직후 PAUSED. 현재 세션의 `resume` Control을 받아야 RUNNING입니다.
+- `pause`는 Camera, TensorRT, Detection, Display를 유지하며 JSON/ID 생성과 enqueue를 차단하고 Queue를 비웁니다.
+- 상태 변경 번호로 PAUSE/RESUME을 가로지른 프레임과 이전 대기 메시지를 폐기합니다.
+- 송수신 실패는 `pi_connection_lost`, 연결 성공은 `pi_connection_restored`로 표시합니다.
+- 전달받은 downstream reason은 그대로 표시합니다. 실패한 Vision을 재전송하지 않습니다.
+- 이미 송신을 시작했거나 TCP 버퍼에 들어간 바이트는 PAUSE로 회수할 수 없습니다. 새 송신을 차단하고 복구 시 replay하지 않습니다.
+- Queue 최대 16개, overflow 시 가장 오래된 메시지를 폐기합니다.
+- 연결 시도 제한 1초, 재시도 간격 1초. 송신 prefix/payload 각각 최대 1초입니다.
+- Control idle timeout은 없습니다. Linux TCP keepalive(10초 idle, 3초 interval, 3 probes)와 TCP_USER_TIMEOUT(20초)을 설정합니다. 실제 장애 검출 시간은 커널·네트워크 상태에 따릅니다.
+- 종료 시 Queue를 닫고 socket shutdown으로 blocking I/O를 깨운 뒤 join합니다.
 
-현재 전달은 best-effort이며 종료 시 Queue drain은 수행하지 않습니다. 연결·송신의 별도 timeout은 없고, 진행 중인 호출은 종료를 지연시킬 수 있습니다. Metrics의 Dropped는 Queue 초과 건수입니다.
+Control은 version 1 envelope와 문자열 device_id/message_id, 정수 timestamp_ms,
+문자열 action/reason을 요구합니다. action은 소문자 `pause` 또는 `resume`입니다.
+잘못된 JSON/Control은 무시하며, 길이 0 또는 1 MiB 초과 framing은 연결을 종료합니다.
+
+Metrics는 FPS, Inference, Produced/Sent msg/s, Queue depth, Overflow drop,
+PAUSE discard, Network State, Pi Link, Pause Reason, Reconnect count를 출력합니다.
+최초 연결은 reconnect count에 포함하지 않습니다. Discard에는 장애 전환 때 버린
+pending 메시지와 이미 pop한 전송 불가 메시지를 포함합니다.
 
 ## Build
 
@@ -187,7 +196,7 @@ DISPLAY=:1 ./pirun <server_ip> <server_port>
 | include/ · src/core/ | 설정, Boot ID, Message ID, Metrics |
 | include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리 |
 | include/ · src/protocol/ | JSON 직렬화 및 메시지 형식 |
-| include/ · src/network/ | Queue, TCP, ACK, Retry / Reconnect |
+| include/ · src/network/ | Queue, TCP, Control RX, Data TX, Reconnect |
 | src/main.cpp | 초기화 및 Runtime 관리 |
 | test/ | 원본 프로젝트의 수동 검증 이미지 |
 
@@ -200,14 +209,21 @@ DISPLAY=:1 ./pirun <server_ip> <server_port>
 - Tracking, Line Crossing, 통계 메시지, 녹화·스냅샷 저장은 Runtime에 포함하지 않습니다.
 - 시간 구간별 집계와 데이터 보관 정책은 수신 서버의 후처리 영역입니다.
 
-## Integration Check
+## Tests and Integration
 
-1. 상대 서버 또는 보조 Relay Server 실행
-2. Jetson에서 실제 서버 IPv4와 포트로 pirun 실행
-3. 실시간 탐지 화면과 ACK OK 확인
-4. 서버 수신·처리 결과 확인
+```bash
+cmake --build build -j2
+(cd build && ctest --output-on-failure)
+./build/bin/edge_vision <pi_gateway_ip> 8000
+```
 
-보조 Relay Server를 사용하는 경우 SQLite 저장도 확인합니다.
+`network_integration_test`는 실제 localhost TCP socket으로 ACK 없는 송신,
+분할 Control, PAUSE/RESUME, 초기 접속 실패 후 재시도, 새 세션 동기화,
+stale 데이터 차단, Queue 경쟁, blocking receive 종료를 검증합니다.
+카메라와 Pi/WSL의 전체 실환경 검증을 대체하지 않습니다.
+검증 기록은 [docs/network-validation.md](docs/network-validation.md)를 참고합니다.
+
+최종 실환경 검증 전에는 `/opt` 설치와 `pirun` 운영 전환을 하지 않습니다.
 
 ## Related Projects
 

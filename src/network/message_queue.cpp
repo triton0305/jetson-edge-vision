@@ -2,10 +2,13 @@
 
 #include <iostream>
 #include <utility>
+#include <stdexcept>
 
 MessageQueue::MessageQueue(std::size_t max_size)
   : max_size_(max_size)
 {
+  if (max_size_ == 0)
+    throw std::invalid_argument("Queue capacity must be positive");
 }
 
 bool MessageQueue::push(OutboundMessage message)
@@ -48,6 +51,21 @@ bool MessageQueue::pop(OutboundMessage& message)
   queue_.pop();
 
   return true;
+}
+
+std::uint64_t MessageQueue::clear()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  const std::uint64_t cleared_count =
+    static_cast<std::uint64_t>(queue_.size());
+
+  while (!queue_.empty())
+  {
+    queue_.pop();
+  }
+
+  return cleared_count;
 }
 
 void MessageQueue::close()

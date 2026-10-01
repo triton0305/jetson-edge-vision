@@ -2,6 +2,7 @@
 #define TCP_CLIENT_HPP
 
 #include <cstddef>
+#include <mutex>
 #include <string>
 
 class TcpClient
@@ -9,7 +10,6 @@ class TcpClient
 public:
   TcpClient(const std::string& server_ip, int server_port);
   ~TcpClient();
-
   bool connectToServer();
   bool sendData(const std::string& data);
   bool receiveData(std::string& data);
@@ -17,13 +17,15 @@ public:
   bool isConnected() const;
 
 private:
-  bool sendAll(const void* data, std::size_t size);
-  bool readAll(void* data, std::size_t size);
-
+  bool sendAll(int fd, const void* data, std::size_t size);
+  bool readAll(int fd, void* data, std::size_t size);
   std::string server_ip_;
   int server_port_;
-  int socket_fd_;
-  bool connected_;
+  mutable std::mutex state_mutex_;
+  std::mutex lifecycle_mutex_;
+  std::mutex send_mutex_;
+  std::mutex receive_mutex_;
+  int socket_fd_ = -1;
 };
 
 #endif // TCP_CLIENT_HPP

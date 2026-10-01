@@ -16,6 +16,7 @@ public:
 
   bool push(OutboundMessage message);
   bool pop(OutboundMessage& message);
+  std::uint64_t clear();
   void close();
 
   std::size_t size() const;

@@ -5,21 +5,22 @@
 #include <cstdint>
 #include <cstddef>
 #include <mutex>
+#include "core/runtime_state.hpp"
 
 class Metrics
 {
 public:
-  Metrics();
-
-  void recordFrame(double inference_ms, std::size_t queue_size, std::uint64_t dropped_count);
-  void recordMessageDelivery(double delivery_ms);
+  void recordFrame(double inference_ms, std::size_t queue_size,
+                   std::uint64_t dropped, const RuntimeSnapshot& state);
+  void recordProduced();
+  void recordSent();
 
 private:
-  std::chrono::steady_clock::time_point last_report_time_;
-  std::uint64_t frame_count_;
-  std::uint64_t message_count_;
-  double inference_total_ms_;
-  double delivery_total_ms_;
+  std::chrono::steady_clock::time_point last_report_time_ = std::chrono::steady_clock::now();
+  std::uint64_t frames_ = 0;
+  std::uint64_t produced_ = 0;
+  std::uint64_t sent_ = 0;
+  double inference_ms_ = 0;
   std::mutex mutex_;
 };
 
