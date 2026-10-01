@@ -225,7 +225,10 @@ stale 데이터 차단, Queue 경쟁, blocking receive 종료를 검증합니다
 
 최종 실환경 검증 전에는 `/opt` 설치와 `pirun` 운영 전환을 하지 않습니다.
 
-## Related Projects
+## Related Repositories
 
-- [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision): CPU 추론 기반 원본 프로젝트
-- [Edge Vision Relay Server](https://github.com/triton0305/edge-vision-relay-server): 배포 편의를 위한 보조 서버
+연동 구성요소의 구현과 실행 방법은 각 저장소를 참고합니다.
+
+- [Raspberry Pi Edge Vision Gateway](https://github.com/triton0305/raspberry-pi-edge-vision-gateway): Raspberry Pi에서 Jetson의 Vision을 WSL로 전달하고, downstream 상태를 Control로 Jetson에 전달하는 Gateway입니다.
+- [Jetson Edge Vision Relay Server](https://github.com/triton0305/jetson-edge-vision-relay-server): WSL에서 Vision을 수신해 SQLite에 저장하고, DB 장애·복구 상태를 Control로 Gateway에 전달하는 최종 서버입니다.
+- [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision): 이 Jetson Client의 기반이 된 CPU 추론 원본 프로젝트입니다.
