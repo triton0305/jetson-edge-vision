@@ -20,5 +20,5 @@ logs/
 *.trace
 *.pcap
 *.pcapng
-*.pidartifacts/
+*.pid
 artifacts/
