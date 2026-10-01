@@ -24,7 +24,7 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 Raspberry Pi
 
 ## Changes from Raspberry Pi
 
-| 항목 | Raspberry Pi Edge Vision | Jetson Edge Vision |
+| **항목** | **Raspberry Pi Edge Vision** | **Jetson Edge Vision** |
 |---|---|---|
 | 장비 | Raspberry Pi 4 | NVIDIA Jetson Nano |
 | 추론 | OpenCV DNN / CPU | TensorRT / CUDA GPU |
@@ -40,7 +40,7 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 �
 
 동일 장소·촬영 환경에서 Raspberry Pi와 Jetson Nano의 실행 성능을 비교했습니다.
 
-| 지표 | Raspberry Pi 4 | Jetson Nano |
+| **지표** | **Raspberry Pi 4** | **Jetson Nano** |
 |---|---|---|
 | 추론 방식 | OpenCV DNN / CPU | TensorRT FP16 / GPU |
 | Effective FPS | 약 2.2–2.3 FPS | 약 7.4 FPS |
@@ -52,13 +52,13 @@ Effective FPS는 영상 처리 속도이며 서버 전달 처리량과 구분합
 
 ## Architecture
 
-| Stage | Flow |
+| **Stage** | **Flow** |
 |---|---|
 | **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS |
 | **② Message Generation** | Detection → 객체별 vision JSON → Message Queue |
 | **③ Delivery** | Data TX → Pi Gateway → WSL Final Server |
 
-| Component | Responsibility |
+| **Component** | **Responsibility** |
 |---|---|
 | **Vision Client** | 프레임 획득, 전처리·추론·후처리, Detection 생성 및 전송 |
 | **Pi Gateway** | Vision 전달, downstream Control 전달 |
@@ -106,7 +106,7 @@ Vision과 Control은 `4-byte big-endian payload length + JSON` 형식입니다.
 }
 ```
 
-| 필드 | 기준 |
+| **필드** | **기준** |
 |---|---|
 | message_id | device_id + 실행마다 증가하는 영속 boot_id + 객체별 sequence |
 | frame_id | 실행 내 프레임 번호, 0부터 시작 |
@@ -152,7 +152,7 @@ Metrics는 FPS, Inference, Produced/Sent msg/s, Queue depth, Overflow drop, PAUS
 
 Engine은 별도로 준비합니다. 현재 Detector가 사용하는 I/O 규격은 다음과 같습니다.
 
-| Binding | Shape | Type |
+| **Binding** | **Shape** | **Type** |
 |---|---|---|
 | images | 1×3×640×640 | FP32 |
 | output0 | 1×84×8400 | FP32 |
@@ -170,7 +170,7 @@ cmake --build build -j2
 ./build/bin/edge_vision <pi_gateway_ip> <pi_gateway_port>
 ```
 
-| 항목 | 개발 경로 |
+| **항목** | **개발 경로** |
 |---|---|
 | Model | models/yolo26n_fp16.engine |
 | Boot ID | boot_id.dat |
@@ -191,7 +191,7 @@ cmake --build build-deploy -j2
 sudo cmake --install build-deploy
 ```
 
-| 항목 | 운영 경로 |
+| **항목** | **운영 경로** |
 |---|---|
 | Binary | /opt/edge_vision/bin/edge_vision |
 | Model | /opt/edge_vision/models/yolo26n_fp16.engine |
@@ -216,7 +216,7 @@ DISPLAY=:1 ./pirun <pi_gateway_ip> <pi_gateway_port>
 
 ## Project Structure
 
-| 경로 | 역할 |
+| **경로** | **역할** |
 |---|---|
 | include/ · src/core/ | 설정, Boot ID, Message ID, Runtime State, Metrics |
 | include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리 |
