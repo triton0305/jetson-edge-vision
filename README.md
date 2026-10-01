@@ -40,17 +40,19 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 �
 
 ## Performance
 
-동일 장소·촬영 환경에서 Raspberry Pi와 Jetson Nano의 실행 성능을 비교했습니다.
+동일 장소의 실시간 카메라 영상으로 Raspberry Pi와 Jetson Nano의 실행 성능을 측정했습니다.
 
-| **지표** | **Raspberry Pi 4** | **Jetson Nano** |
+| 지표 | Raspberry Pi 4 | Jetson Nano |
 |---|---|---|
 | 추론 방식 | OpenCV DNN / CPU | TensorRT FP16 / GPU |
-| Effective FPS | 약 2.2–2.3 FPS | 약 7.4 FPS |
-| 평균 추론 시간 | 약 410–490 ms | 약 54.5 ms |
+| Effective FPS | 약 2.2–2.3 FPS | 약 11.9–12.0 FPS |
+| 평균 추론 시간 | 약 410–490 ms | 약 54.5–54.6 ms |
 
-기존 Raspberry Pi 측정값 대비 처리 FPS는 약 3.2–3.4배 증가했고, 추론 시간은 약 87–89% 감소했습니다.
+측정값 기준 영상 처리 속도는 약 5.2–5.5배 증가했고, 평균 추론 시간은 약 87–89% 감소했습니다. 동일 장소에서 측정했으나 실시간 영상의 차량 수와 장면은 서로 다릅니다.
 
-Effective FPS는 영상 처리 속도이며 서버 전달 처리량과 구분합니다. 두 측정은 동일 장소의 실시간 카메라 영상을 사용했습니다.
+Effective FPS는 영상 처리 속도이며, Produced/Sent Vision msg/s는 객체별 메시지 생성·송신 처리량입니다. 한 프레임에서 여러 차량을 탐지할 수 있으므로 메시지 처리량은 FPS보다 높을 수 있습니다.
+
+첨부한 RUNNING 구간에서는 Queue depth 0–3, Queue overflow dropped 0, Discarded on PAUSE 0이 관측됐습니다. 생성과 송신 처리량의 순간 차이는 Queue에 대기 중인 메시지의 영향을 받습니다.
 
 ## Architecture
 
