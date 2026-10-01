@@ -1,6 +1,6 @@
 # Jetson Edge Vision
 
-**개발 기간:** 2026.09.21 ~ 2026.09.28
+**개발 기간:** 2026.09.30 ~ 2026.10.01
 
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)을 Jetson Nano 환경으로 확장한 C++17 차량 인지 Client입니다. OpenCV DNN의 CPU 추론을 TensorRT FP16 기반 GPU 추론으로 전환했습니다.
 
