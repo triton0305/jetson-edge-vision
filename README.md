@@ -52,8 +52,6 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 �
 
 Effective FPS는 영상 처리 속도이며, Produced/Sent Vision msg/s는 객체별 메시지 생성·송신 처리량입니다. 한 프레임에서 여러 차량을 탐지할 수 있으므로 메시지 처리량은 FPS보다 높을 수 있습니다.
 
-첨부한 RUNNING 구간에서는 Queue depth 0–3, Queue overflow dropped 0, Discarded on PAUSE 0이 관측됐습니다. 생성과 송신 처리량의 순간 차이는 Queue에 대기 중인 메시지의 영향을 받습니다.
-
 ## Architecture
 
 | **Stage** | **Flow** |
