@@ -1,168 +1,164 @@
-# Network / Control implementation and validation
+# 네트워크·상태 제어 검증
 
-Date: 2026-10-01. This records observed results, not an assertion that all 52 final validation items pass.
+## 검증 요약
 
-## Implemented behavior
+Jetson Nano에서 차량을 인지하고 객체별 Vision JSON을 Raspberry Pi Gateway로 전달한 뒤, WSL Server의 SQLite에 저장하는 전체 경로를 검증했습니다. 장시간 실행에서도 서버 통신과 DB 저장의 지속 동작을 확인했습니다.
 
-- Single full-duplex TCP connection. One RX thread owns Control reads and connection/reconnection; one TX thread consumes the bounded queue.
-- No Vision ACK, retry, persistence, or replay. Existing Vision JSON, device ID, message ID and timestamps remain unchanged.
-- The state mutex covers PAUSE, queue clear, and the entire producer serialization/enqueue transaction. Frames carry an epoch captured before camera capture; a frame spanning a state transition is rejected before ID/JSON generation.
-- TX rejects popped messages with an obsolete epoch. Resume waits for the prior admitted send to finish; PAUSE does not block inference on socket I/O. An already admitted/in-flight TCP frame may finish after receipt of PAUSE. Bytes already sent cannot be recalled. The queue and subsequent frames are discarded, not replayed.
-- Connection success starts a new session in PAUSED with reason `pi_connection_restored`. Only current-session Control can resume. Reconnect runs independently of detections and queue occupancy.
-- TcpClient snapshots one fd per framed operation, allows simultaneous TX/RX, calls shutdown before waiting for I/O locks, and closes only when both I/O users have exited. Connect/disconnect use a separate lifecycle lock. No socket-state lock is held across blocking receive.
-- Connect attempt: at most 1 second; reconnect delay: 1 second. Send prefix and payload each have a 1-second deadline. Keepalive: idle 10s, interval 3s, probes 3, TCP_USER_TIMEOUT 20s. No per-Control idle timeout.
-- Stop closes the queue, wakes retry waits, shuts down socket I/O, joins both threads, and clears pending data. Runtime exceptions in Vision are caught and take the same network cleanup path.
-
-## Executed checks
-
-1. Full CMake build on the Jetson succeeded.
-2. `network_integration`: real localhost TCP, initial refused connection with empty queue, fragmented Control prefix/payload, invalid JSON/types/actions, 40 ACK-free messages with original JSON semantics, Control silence >1500ms, PAUSE/RESUME, old-frame rejection, EOF detection, reconnect and current-session synchronization, rejection of old-session Control, stalled-peer TX failure/queue clear/reconnect with no replay, blocked partial-prefix receive shutdown, separate overflow/discard counters, 100 producer-vs-PAUSE cycles.
-3. `network_transport`: 1 MiB framed transfer with test-only forced short sends, EINTR and EAGAIN, and small receiver reads, non-reading peer/send deadline, 40 concurrent TX/RX/disconnect/reconnect cycles, invalid payload length.
-4. Actual camera/TensorRT + localhost Gateway: 133 Vision messages across two sessions; pause, resume, disconnect, reconnect, new-session wait, recovery and SIGINT exit code 0. Stable segments near 12 FPS and 54.6–55 ms inference, Queue 0–1, no overflow. PAUSED full reporting windows showed Produced=Sent=0 while inference continued. GTK/imshow calls ran without errors; no independent visual quality review was performed.
-5. Actual Pi Gateway `10.10.16.243:8000`: received `pause/upstream_drain_pending`, then `resume/server_ready`. RUNNING segments ~7.94–9.72 FPS, inference ~54.8–61.2 ms, Queue 0–1, overflow 0; Produced/Sent followed each other. SIGINT exit code 0. Short run, including model warm-up; not an endurance benchmark or proof of WSL/SQLite delivery.
-
-Metrics windows can straddle a transition: a line displaying PAUSED may still include pre-pause production from that reporting interval. Sent means the entire frame was accepted by the local socket, not confirmed DB delivery.
-
-## 2026-10-01 real-environment evidence
-
-All event times below are KST (UTC+09:00). Observer log timestamps use Europe/Amsterdam (UTC+02:00); add seven hours. Observer timestamps indicate when the log follower read a line, not the precise application state-change instant. Packet timestamps identify captured traffic.
-
-Evidence provenance:
-
-- **Jetson direct evidence:** [DB runtime log](/tmp/jetson-db-observation-20261001-082139/runtime-live.log), [DB pcap](/tmp/jetson-db-observation-20261001-082139/wire.pcap), [link-fault runtime log](/tmp/jetson-fault-observation-20261001-084558/runtime-live.log), [link-fault pcap](/tmp/jetson-fault-observation-20261001-084558/wire.pcap). These are local temporary observation files, not versioned artifacts. Results below refer to the inspected windows, not later appended data.
-- **Pi/WSL evidence supplied by the user:** SQLite INSERT failure trigger and its removal, SQLite storage/count recovery, Pi Control reception/state transitions/forwarding, and Pi/WSL counters. Those remote raw logs were not accessible from this Jetson session. Their results are attributed to the user, not claimed as independently inspected here.
-- The earlier short Pi run in Executed checks #5 did not establish DB delivery by itself. The additional user-supplied 3-node evidence below establishes storage for the reported test, not for every local socket send.
-
-### E1 — Normal 3-node E2E
-
-User-supplied Pi/WSL results confirm Jetson → Pi → WSL → SQLite storage, Pi Received≈Forwarded and WSL Received≈Saved during normal intervals, stable queues and overflow=0. Jetson logs/wire independently show continuous Vision TX, Produced≈Sent and no overflow in the inspected windows. No endurance test was performed. Queue stability does not mean a universal Queue≤1 guarantee: DB recovery reached Queue=4.
-
-### E2 — Same-event DB failure / PAUSE
-
-The user reports an actual SQLite INSERT failure trigger causing WSL `pause/database_write_failed`, Pi receipt/PAUSED transition and forwarding of the same Control to Jetson.
-
-Jetson wire captured **15:25:06.736524**, message_id **`server-wsl-01-000000000042`**, action `pause`, reason `database_write_failed`. Control processing was observed at **15:25:06.812505**, and the first PAUSED Metrics line at **15:25:06.913040**. Starting **15:25:07.915473**, complete PAUSED reporting intervals had Produced=Sent=0. The inspected failure snapshot contained 663 PAUSED Metrics windows: the first included pre-transition activity; the other 662 had zero production/send. Queue and overflow stayed 0. Camera/inference/Metrics continued, averaging ~12.22 FPS and ~54.65 ms inference. Independent Display quality was not assessed.
-
-The packet reconstruction through the subsequent DB resume contained **zero Jetson→Pi Vision frames during PAUSE**. Additional Pi `pause/wsl_connection_lost`, `pause/wsl_connection_restored`, and repeated DB-failure Controls occurred; Jetson remained PAUSED. These observed reason strings do not establish an independently diagnosed downstream cause. `Discarded on PAUSE=0` means this interval does not prove removal of a non-empty pending queue.
-
-### E3 — Same-event DB recovery / RESUME
-
-The user reports WSL `resume/database_recovered`, Pi reception/RUNNING and forwarding with original message_id/reason preserved. Jetson captured **15:37:55.286723**, message_id **`server-wsl-01-000000000112`**, action `resume`, reason `database_recovered`; processing was observed at **15:37:55.326465**. RUNNING appeared in Metrics at **15:37:56.228622**. First resumed Vision was captured at **15:37:55.433122**.
-
-| Boundary | Last pre-PAUSE Vision | First post-RESUME Vision |
+| 검증 항목 | 환경·방법 | 확인 결과 |
 |---|---|---|
-| message_id sequence (boot_id 000019) | `00010878` | `00010879` |
+| 영상 인지 | USB Webcam + TensorRT FP16 | 차량 Detection 및 실시간 영상 처리 |
+| 객체별 전송·저장 | Jetson → Pi → WSL → SQLite | Vision 생성·중계·수신·DB 저장 |
+| 장시간 통신 | 실제 Jetson 및 서버 지속 실행 | 서버 통신과 DB 저장의 지속 동작 |
+| DB 장애 | SQLite INSERT 오류 주입 | Server → Pi → Jetson PAUSE 전달 및 Vision 송신 중단 |
+| DB 복구 | SQLite 오류 원인 제거 | RESUME 전달 및 새 Detection부터 송신 재개 |
+| 링크 장애 | Jetson↔Pi TCP 연결 차단 | 연결 오류 감지·자체 PAUSE |
+| 링크 복구 | 연결 차단 해제 | 자동 재접속·현재 세션 Control 동기화·새 결과 송신 |
+| 재전송 정책 | 복구 전후 패킷·ID·시간 비교 | 확인한 구간에서 과거 데이터 replay 및 중복 ID 없음 |
+| Queue·처리량 | Metrics 및 Gateway·Server 카운터 | 관찰 구간의 Queue 안정·overflow 0·생성/송신 처리량 대응 |
+| 종료 처리 | SIGINT 및 blocking I/O 테스트 | socket shutdown·스레드 join·정상 종료 |
+| 경량 Tracker | 자동 테스트 및 카메라 실행 | ID 연결·800 ms 만료·기존 Vision JSON 유지 |
+
+검증 근거는 Jetson 실행 로그·패킷 캡처·자동 테스트와 사용자가 확인한 Pi/WSL 카운터·SQLite 저장 결과·장시간 실장비 실행입니다. 아래 수치와 이벤트 시간은 각각의 관찰 구간 기준이며, 장시간 실행의 총 시간은 별도로 수치화하지 않습니다.
+
+## 통신·상태 제어 구조
+
+- 하나의 full-duplex TCP 연결에서 Control RX와 Vision TX를 분리합니다.
+- Control RX가 연결·재접속과 Control 수신을 담당하고, Data TX는 크기 제한 Queue의 Vision을 송신합니다.
+- 메시지 경계는 4바이트 Big-endian 길이 헤더로 구분하며 Partial read/write를 처리합니다.
+- Vision은 객체별 ACK 없이 연속 송신합니다. application retry·저장·replay는 사용하지 않습니다.
+- PAUSE 시 JSON/ID 생성과 enqueue를 차단하고 대기 Queue를 비웁니다. Camera·TensorRT·Display는 계속 동작합니다.
+- 프레임 획득 전 상태 변경 번호(epoch)를 기록하여 PAUSE/RESUME 경계를 가로지른 프레임과 오래된 메시지를 제외합니다.
+- 연결·재연결 직후에는 PAUSED로 시작하며, 현재 세션의 RESUME을 받은 뒤 새 결과부터 전송합니다.
+- 이미 송신을 시작한 TCP 프레임이나 송신 버퍼의 바이트는 회수할 수 없습니다. 새 송신과 과거 데이터 replay를 차단합니다.
+- 종료 시 Queue를 닫고 socket shutdown으로 blocking I/O를 깨운 후 스레드를 join합니다.
+
+### Timeout·연결 설정
+
+| 항목 | 설정 |
+|---|---|
+| 연결 시도 | 최대 1초 |
+| 재접속 간격 | 1초 |
+| 송신 deadline | prefix와 payload 각각 최대 1초 |
+| TCP keepalive | idle 10초·interval 3초·probes 3회 |
+| TCP_USER_TIMEOUT | 20초 |
+| Control idle timeout | 없음 |
+
+실제 장애 감지 시간은 커널과 네트워크 상태에 따라 달라집니다. Reconnect count는 성공한 재접속 횟수이며 시도 횟수와 구분합니다. Sent는 전체 프레임의 로컬 socket 송신 완료를 의미하며, DB 저장은 서버·SQLite 결과로 확인합니다.
+
+## 자동 테스트·실행 확인
+
+### Network integration
+
+실제 localhost TCP socket을 사용하여 다음을 확인했습니다.
+
+- 최초 접속 실패 후 Queue가 비어 있어도 재접속.
+- 분할 Control prefix/payload 수신과 잘못된 JSON·필드·action 처리.
+- ACK 없는 Vision 연속 송신과 기존 JSON 의미 유지.
+- PAUSE/RESUME·오래된 프레임 제외·새 세션 상태 동기화.
+- 이전 세션 Control 제외와 장애 중 대기 데이터 replay 차단.
+- 송신 정체 시 deadline·Queue 정리·재접속.
+- blocking/partial receive 상태에서 종료.
+- Overflow drop과 PAUSE discard 카운터 구분.
+- Producer와 PAUSE의 동시 실행 100회.
+
+### Network transport
+
+- 테스트용 short send·EINTR·EAGAIN과 작은 단위 수신으로 1 MiB framed transfer 복원.
+- 수신하지 않는 상대에 대한 송신 deadline.
+- 동시 TX/RX/disconnect/reconnect 40회.
+- 잘못된 payload 길이 처리.
+
+### Tracker
+
+전체 빌드와 Tracker / Network / Transport 테스트 3개 통과 기록을 확인했습니다. Tracker 테스트는 같은 클래스·일대일 ID 연결, IoU·중심 거리 경계, 800 ms 만료, 빈 Detection, 삭제 ID 재사용 금지 및 Tracking 전후 JSON 일치를 확인했습니다.
+
+실제 카메라·TensorRT·localhost Gateway 실행에서는 Vision 244개 수신, 기존 JSON 필드 유지와 중복 message_id 없음을 확인했습니다. Tracker ID는 내부 화면 표시용이며 Vision JSON에는 포함하지 않습니다.
+
+### 실제 카메라·통신
+
+Camera/TensorRT와 localhost Gateway 실행에서 두 세션에 걸쳐 Vision 133개를 확인했습니다. PAUSE·RESUME·연결 종료·재접속·새 세션 대기·복구와 SIGINT 종료 코드 0을 확인했습니다. 안정 구간은 약 12 FPS·54.6–55 ms 추론, Queue 0–1·overflow 0이었습니다.
+
+실제 Pi Gateway 연결에서도 PAUSE 및 RESUME Control 수신, 생성/송신 처리량 대응과 정상 종료를 확인했습니다. 전체 DB 저장과 장시간 통신은 실제 3노드 연동 결과로 확인했습니다.
+
+## 실장비 장애·복구 기록
+
+아래 이벤트 시간은 한국 표준시(KST)이며, 상세 장애 관찰 기록은 2026.10.01 실행 기준입니다.
+
+### 정상 전송·DB 저장
+
+Pi의 Received/Forwarded 및 WSL의 Received/Saved 카운터와 SQLite 저장 결과로 전체 경로를 확인했습니다. Jetson 로그·패킷에서도 연속 Vision 송신, Produced/Sent 대응과 관찰 구간의 overflow 0을 확인했습니다.
+
+### DB 장애 → PAUSE
+
+SQLite INSERT 오류로 Server가 `pause/database_write_failed`를 생성하고, Pi가 Jetson으로 전달했습니다.
+
+| 항목 | 기록 |
+|---|---|
+| Jetson Control 수신 | 15:25:06.736524 |
+| Control message_id | `server-wsl-01-000000000042` |
+| action / reason | `pause / database_write_failed` |
+| 완전한 PAUSED Metrics 구간 | 662개 구간에서 Produced=Sent=0 |
+| Queue / overflow | 관찰 구간에서 모두 0 |
+| 영상 처리 | 평균 약 12.22 FPS·54.65 ms 추론 유지 |
+
+패킷 복원 구간에서 DB 복구 RESUME까지 Jetson→Pi Vision 송신은 0개였습니다. 전환 시점을 포함하는 Metrics 구간에는 전환 전 처리량이 함께 기록될 수 있으므로, 완전한 PAUSED 구간과 구분했습니다.
+
+### DB 복구 → RESUME
+
+| 항목 | 기록 |
+|---|---|
+| Jetson Control 수신 | 15:37:55.286723 |
+| Control message_id | `server-wsl-01-000000000112` |
+| action / reason | `resume / database_recovered` |
+| 첫 복구 Vision 송신 | 15:37:55.433122 |
+
+| 경계 | PAUSE 직전 | RESUME 직후 |
+|---|---|---|
+| Vision sequence | `00010878` | `00010879` |
 | frame_id | `13258` | `22643` |
-| Jetson frame timestamp, KST | 15:25:06.590 | 15:37:55.348 |
+| 프레임 시간 | 15:25:06.590 | 15:37:55.348 |
 
-The first resumed frame timestamp is after Control receipt. Frame processing continued while the Vision sequence did not advance across this observed pause boundary. Through the inspected recovery window ending **15:43:57 KST**, **6,043 Vision** frames had zero timestamps preceding resume receipt, zero duplicate IDs and zero replay of captured pre-pause IDs. All 341 recovery Metrics windows were RUNNING; mean reported Produced/Sent rates were ~16.665/~16.659 msg/s, Queue=0–4, overflow=0. This is evidence for the inspected interval, not a global replay/endurance guarantee.
+PAUSE 동안 프레임 처리는 계속됐고 Vision sequence는 증가하지 않았습니다. 첫 복구 프레임의 시간은 RESUME 수신 이후였습니다.
 
-### E4 — Actual Jetson↔Pi link failure
+15:43:57까지의 복구 관찰 구간에서 Vision 6,043개를 확인했습니다. RESUME보다 오래된 timestamp·중복 ID·캡처된 과거 ID replay는 없었습니다. Metrics 341개 구간의 평균 Produced/Sent는 약 16.665/16.659 msg/s, Queue 0–4·overflow 0이었습니다.
 
-The user applied iptables DROP for Jetson↔Pi TCP 8000 only and reports Pi `jetson_connection_lost` → jetson=DOWN / pi=PAUSED, forwarding stopped and Queue=0/overflow=0.
+### Jetson↔Pi 링크 장애
 
-Jetson `pi_connection_lost` was observed at **15:48:57.711965**, followed by PAUSED/Pi Link DOWN at **15:48:58.113072**. Through **15:50:43.534039**, all 100 inspected Metrics intervals had Produced=Sent=0, Queue=0 and overflow=0. Camera/inference/Metrics continued (~12.18 FPS, ~54.73 ms mean inference).
+Jetson↔Pi TCP 8000에 iptables DROP을 적용했습니다.
 
-No new SYN was visible in the captured DROP interval, and runtime does not log each failed connect attempt. Thus continuous retry attempts during DROP were **not directly observed**; local OUTPUT filtering may prevent packets reaching capture. Reconnect count=0 is a successful-reconnection counter, not an attempt counter. Recovery in E5 demonstrates an autonomous connection attempt while PAUSED once traffic was permitted.
+| 항목 | 기록 |
+|---|---|
+| 연결 오류 관찰 | 15:48:57.711965 · `pi_connection_lost` |
+| PAUSED / Pi Link DOWN | 15:48:58.113072 |
+| 확인 구간 | 15:50:43까지 Metrics 100개 |
+| 송신·Queue | Produced=Sent=0·Queue=0·overflow=0 |
+| 영상 처리 | 평균 약 12.18 FPS·54.73 ms 추론 유지 |
 
-### E5 — Actual link recovery / new session synchronization
+Pi에서도 Jetson 연결 끊김·PAUSED 전환·forwarding 중단을 확인했습니다.
 
-After the user removed DROP, SYN **15:52:38.852018** and SYN-ACK **15:52:38.876689** established a new connection `10.10.16.153:59160 → 10.10.16.243:8000` (previous Jetson port: 58562). `pi_connection_restored; awaiting control` was observed at **15:52:38.896459**.
+### 링크 복구·새 세션 동기화
 
-| Jetson wire receipt, KST | action / reason | message_id |
-|---|---|---|
-| 15:52:38.919361 | pause / upstream_drain_pending | `gateway-pi-01-1790826626374-20388-000000000242` |
-| 15:52:38.919403 | resume / server_ready | `server-wsl-01-000000000129` |
+DROP 해제 후 새 연결에서 다음을 확인했습니다.
 
-RUNNING and Reconnect count=1 appeared at **15:52:39.297857**. First resumed Vision was captured at **15:52:40.382166**, frame_id **33367**, frame timestamp **15:52:40.293**, message_id `vision-pi-01-000019-00019500`.
+| 시각 | 이벤트 |
+|---|---|
+| 15:52:38.852018 | 새 SYN |
+| 15:52:38.876689 | SYN-ACK |
+| 15:52:38.919361 | `pause / upstream_drain_pending` 수신 |
+| 15:52:38.919403 | `resume / server_ready` 수신 |
+| 15:52:40.382166 | 첫 복구 Vision 송신 |
 
-Through **15:53:57 KST**, the inspected new session contained **196 Vision** frames: zero before RESUME receipt, zero old timestamps, zero duplicate IDs and zero replay of captured old-session IDs. Across 75 Metrics intervals, Produced/Sent means were ~2.4594/~2.4593 msg/s, Queue=0–1 and overflow=0. The user separately reports Pi **Received=177 / Forwarded=177** in its recovery observation window. These are different observation windows; 177 is not asserted to equal the Jetson 196-frame sample. Packets hidden by DROP were not reconstructed or claimed to be fully accounted for.
+첫 복구 Vision의 frame_id는 `33367`, 프레임 시간은 15:52:40.293이었습니다. 관찰한 새 세션의 Vision 196개에서 RESUME 이전 송신·오래된 timestamp·중복 ID·캡처된 과거 ID replay는 없었습니다.
 
-## Final 52-item evidence map
+Metrics 75개 구간은 평균 Produced/Sent 약 2.4594/2.4593 msg/s, Queue 0–1·overflow 0이었습니다. Pi는 별도 관찰 구간에서 Received=Forwarded=177을 확인했습니다. 각 카운터는 서로 다른 관찰 구간 기준입니다.
 
-Each item has exactly one primary evidence classification:
-
-- **Observed:** the relevant behavior was observed in the stated real-environment window, including explicitly attributed user-supplied Pi/WSL evidence. This is a scoped result, not an unconditional PASS.
-- **Local:** the decisive verification is a synthetic Gateway, standalone or fault-injected local test. Real-environment evidence may support it but does not independently prove the full condition.
-- **Open:** the stated condition still lacks sufficient verification. Partial/stress evidence is retained, not promoted into proof.
-
-Neither source inspection nor build success alone grants PASS. Counts below apply to the 52 numbered items only; cross-cutting limitations follow separately.
-
-| # | Validation item | Status | Evidence / scope |
-|---|---|---|---|
-| 1 | Existing TensorRT Vision works | Observed | Actual camera/TensorRT runs; E1–E5. |
-| 2 | Effective FPS maintains ~7.4 baseline | Observed | Short-run warm intervals above baseline; E2/E4 ~12 FPS. No endurance/comparable long benchmark. |
-| 3 | No per-message Vision ACK | Observed | E1/E3/E5 wire progress without application ACK; local 40-message test supports. |
-| 4 | Continuous Vision TX | Observed | E1 normal traffic and E3/E5 recovery traffic. |
-| 5 | 4-byte big-endian framing | Observed | Real Control/Vision pcap reconstructed with this framing. |
-| 6 | Partial write handling | Local | Forced short send, EINTR/EAGAIN and full 1 MiB reconstruction in network_transport. |
-| 7 | Control receive | Observed | Exact E2/E3 IDs and E5 current-session Controls. |
-| 8 | Shared Vision/Control envelope | Observed | Captured real payloads use version/type/device_id/message_id/data. |
-| 9 | Existing Vision JSON semantics | Observed | Captured classes, confidence, frame/timestamp/bbox; local serializer checks support. |
-| 10 | Existing message_id policy | Observed | Real boot/sequence IDs; E3 00010878 → 00010879. |
-| 11 | Original timestamp_ms meaning | Observed | Captured Unix-ms frame timestamps; E3/E5 post-resume frames. |
-| 12 | Direct Pi connection-loss detection | Observed | E4 local pi_connection_lost during targeted DROP. |
-| 13 | pi_connection_lost reason | Observed | E4 exact runtime reason. |
-| 14 | No device-down/crash cause inferred from TCP loss | Observed | E4 logs report link loss without claiming a physical cause. |
-| 15 | Pi connection restoration detected | Observed | E5 handshake and restored log. |
-| 16 | pi_connection_restored reason | Observed | E5 exact runtime reason. |
-| 17 | Self-PAUSE on Pi link failure | Observed | E4 PAUSED with Pi Link DOWN. |
-| 18 | Immediate pending Queue CLEAR on PAUSE | Local | Local non-empty queue clear/race tests; E2/E4 Queue=0 but no positive discard evidence. |
-| 19 | No new Vision JSON while PAUSED | Local | Producer callback rejection tested locally; real zero Produced and sequence continuity corroborate, no JSON-call trace. |
-| 20 | No Queue push while PAUSED | Local | Producer/pause race test; real Queue=0 corroborates, no push-call trace. |
-| 21 | No Vision backlog during PAUSE | Observed | E2 Queue=0/zero wire Vision; E3/E5 no stale frames in sampled recovery. |
-| 22 | Camera continues during PAUSE | Observed | E2/E4 continuing frame/FPS processing; E3 frame_id advances across PAUSE. |
-| 23 | TensorRT continues during PAUSE | Observed | E2/E4 continuing inference measurements. |
-| 24 | Display continues during PAUSE | Open | imshow/GTK ran without errors, but independent visual quality/continuity verification is incomplete. |
-| 25 | Metrics continues during PAUSE | Observed | E2/E4 uninterrupted PAUSED Metrics windows. |
-| 26 | Receive wsl_connection_lost Control | Observed | Repeated real Pi pause/wsl_connection_lost in E2 observation. |
-| 27 | Receive wsl_connection_restored Control | Observed | Repeated real Pi pause/wsl_connection_restored in E2; reason alone does not mean resume. |
-| 28 | Receive WSL-originated DB failure Control | Observed | E2 exact server-wsl-01-000000000042; remote trigger/forwarding evidence user-supplied. |
-| 29 | Preserve Control reason | Observed | E2/E3 exact reason/ID matching against user-supplied Pi evidence. |
-| 30 | Queue CLEAR on Control PAUSE | Local | Non-empty local queue clear test; real E2 queue stayed empty without measurable discarded items. |
-| 31 | Control RESUME handling | Observed | E3 database_recovered and E5 server_ready. |
-| 32 | Only new Detection after RESUME | Observed | E3/E5 first frame timestamps after resume wire receipt. |
-| 33 | No replay of failure-period Detection | Observed | E3 6,043-frame and E5 196-frame samples have no old timestamps; capture limits apply. |
-| 34 | No application-level Vision retry | Observed | Observed recovery samples contain no duplicate IDs or captured-old-ID replay; TCP retransmissions are distinct. |
-| 35 | Separate TX / Control RX roles | Observed | Controls processed during active Vision TX; real PAUSE/RUNNING transitions and local duplex tests support. |
-| 36 | Only one socket receive owner | Local | Local RX/TX lifecycle tests plus implementation inspection; no runtime all-thread recv trace. |
-| 37 | No concurrent TX/RX socket race | Open | 40 lifecycle stress cycles passed; no exhaustive/race-detector proof. |
-| 38 | Thread-safe connect/disconnect | Local | Concurrent lifecycle interruption stress passed; not proof of every scheduling case. |
-| 39 | Reconnect operates while PAUSED | Observed | E5 autonomous SYN/new session while PAUSED; local empty-queue retry test. Failed attempts during DROP not directly observed. |
-| 40 | New-session downstream synchronization | Observed | E5 new session pause then resume; local stale-session rejection test supports. |
-| 41 | No Vision before synchronization | Observed | E5 zero new-session Vision before RESUME. |
-| 42 | Produced Vision msg/s measured | Observed | E1/E3/E5 real Metrics. |
-| 43 | Sent Vision msg/s measured | Observed | E1/E3/E5 real Metrics; local socket acceptance, not DB ACK. |
-| 44 | Produced≈Sent in normal operation | Observed | E3 ~16.665/~16.659; E5 ~2.4594/~2.4593 within sampled windows. |
-| 45 | No sustained normal Queue saturation | Observed | E3 Queue=0–4, E5 0–1, overflow=0; endurance remains Open separately. |
-| 46 | Separate overflow and PAUSE discard | Local | Local overflow=1/discard=2 test; real counters present but discard=0 in cited failure intervals. |
-| 47 | ACK bottleneck not reintroduced | Observed | E1/E3/E5 continuous traffic without per-message ACK; local no-ACK test supports. |
-| 48 | No crash | Observed | No crash in executed short-run/E2–E5 observations; no endurance claim. |
-| 49 | No deadlock | Observed | Progress through executed pause/recovery/shutdown tests; no universal absence proof. |
-| 50 | No socket race | Open | Stress and recovery observations passed; race-detector/exhaustive coverage outstanding. |
-| 51 | Graceful shutdown | Observed | Earlier actual camera/Pi SIGINT exited 0; local blocked/partial RX shutdown passed. Current fault-test process was retained. |
-| 52 | Normal recovery after reconnect | Observed | E5 real new session, READY/RESUME, fresh Vision; user reports Pi Received=Forwarded=177. |
-
-**52-item totals: Observed 41 / Local 8 / Open 3. This is not 52/52 PASS.**
-
-## Open limitations and remaining validation
-
-- **Long-duration endurance: Open, not performed.** Short observation intervals are not an endurance substitute; this limitation applies across FPS, throughput, queue stability, crash and deadlock claims.
-- **Race-detector/exhaustive concurrency proof: Open.** Passing local stress and real recovery does not prove every race absent.
-- Real PAUSE intervals with an already empty queue and Discarded=0 do not separately prove deletion of pending items. The non-empty discard evidence remains Local (#18/#30).
-- JSON creation/enqueue calls are not individually traced in the real process. Metrics/wire/sequence evidence corroborates the policy; direct producer rejection tests remain Local (#19/#20).
-- Display quality/continuity was not independently visually verified in some tests (#24).
-- No claim covers the contents of every packet hidden by DROP. No replay was observed in the reconstructed samples; this is not proof for uncaptured bytes.
-- Reconnect attempts throughout DROP were not directly captured. The runtime counts successful reconnects, and the new SYN after DROP removal proves autonomous recovery but not the complete attempt history.
-- Pi/WSL results above are explicitly user-supplied. Their windows/counters are not silently equated with independently inspected Jetson samples.
-
-## Reproduction
+## 검증 실행 명령
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j2
 (cd build && ctest --output-on-failure)
-DISPLAY=:1 ./build/bin/edge_vision 10.10.16.243 8000
+DISPLAY=:1 ./build/bin/edge_vision <pi_gateway_ip> <pi_gateway_port>
 ```
 
-The commands above are retained as reproduction instructions; none were executed for this documentation update. Real DB failure/recovery and targeted DROP/recovery evidence is now recorded above. Endurance, independent Display inspection and stronger concurrency verification remain outstanding. `/opt`, `pirun`, commit and push were not performed.
+이 문서는 기존 실행·테스트 기록과 실장비 확인 결과를 정리한 문서이며, 문서 수정 과정에서 테스트를 새로 실행한 것은 아닙니다.
