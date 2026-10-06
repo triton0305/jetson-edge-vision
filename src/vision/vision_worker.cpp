@@ -24,6 +24,7 @@
 #include "vision/detector.hpp"
 #include "vision/postprocessor.hpp"
 #include "vision/preprocessor.hpp"
+#include "vision/tracker.hpp"
 
 namespace
 {
@@ -39,6 +40,7 @@ VisionWorker::VisionWorker(
   Preprocessor& preprocessor,
   Detector& detector,
   PostProcessor& postprocessor,
+  Tracker& tracker,
   Serializer& serializer,
   MessageQueue& message_queue,
   RuntimeState& runtime_state,
@@ -49,6 +51,7 @@ VisionWorker::VisionWorker(
     preprocessor_(preprocessor),
     detector_(detector),
     postprocessor_(postprocessor),
+    tracker_(tracker),
     serializer_(serializer),
     message_queue_(message_queue),
     runtime_state_(runtime_state),
@@ -100,10 +103,12 @@ void VisionWorker::run()
       preprocessor_.inputWidth(),
       preprocessor_.inputHeight());
 
+    const std::vector<TrackedDetection> tracked_detections = tracker_.update(detections);
     cv::Mat display_frame = frame.clone();
 
-    for (const Detection& detection : detections)
+    for (const TrackedDetection& tracked_detection : tracked_detections)
     {
+      const Detection& detection = tracked_detection.detection;
       const BoundingBox& bbox = detection.bbox;
 
       cv::rectangle(
@@ -113,7 +118,7 @@ void VisionWorker::run()
         2);
 
       std::ostringstream label;
-      label << detection.class_name << ' '
+      label << detection.class_name << " ID:" << tracked_detection.track_id << ' '
             << std::fixed << std::setprecision(2)
             << detection.confidence;
 
@@ -129,6 +134,24 @@ void VisionWorker::run()
         2);
     }
 
+    const MetricsSnapshot display_metrics = metrics_.snapshot();
+    std::ostringstream fps_label;
+    fps_label << "FPS: " << std::fixed << std::setprecision(1) << display_metrics.effective_fps;
+    std::ostringstream inference_label;
+    inference_label << "Inference: " << std::fixed << std::setprecision(1)
+                    << display_metrics.avg_inference_ms << " ms";
+    const std::string overlay[] = {
+      fps_label.str(), inference_label.str(),
+      "Active Tracks: " + std::to_string(tracked_detections.size())};
+    for (int i = 0; i < 3; ++i)
+    {
+      const cv::Point position(10, 25 + i * 24);
+      cv::putText(display_frame, overlay[i], position, cv::FONT_HERSHEY_SIMPLEX,
+                  0.6, cv::Scalar(0, 0, 0), 3);
+      cv::putText(display_frame, overlay[i], position, cv::FONT_HERSHEY_SIMPLEX,
+                  0.6, cv::Scalar(255, 255, 255), 1);
+    }
+
     cv::imshow("Edge Vision", display_frame);
 
     if (cv::waitKey(1) == 27)
@@ -140,8 +163,9 @@ void VisionWorker::run()
     {
       runtime_state_.produce(frame_state.epoch, [&]
       {
-        for (const Detection& detection : detections)
+        for (const TrackedDetection& tracked_detection : tracked_detections)
         {
+          const Detection& detection = tracked_detection.detection;
           ++sequence;
 
           const std::string message_id =

@@ -11,6 +11,7 @@ void Metrics::recordFrame(double inference_ms, std::size_t queue_size,
   const double seconds = std::chrono::duration<double>(now - last_report_time_).count();
   if (seconds < 1.0)
     return;
+  last_report_ = {frames_ / seconds, inference_ms_ / frames_};
   std::cout << "Metrics: Effective FPS=" << frames_ / seconds
             << " | Avg Inference=" << inference_ms_ / frames_ << " ms"
             << " | Produced Vision msg/s=" << produced_ / seconds
@@ -37,4 +38,10 @@ void Metrics::recordSent()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   ++sent_;
+}
+
+MetricsSnapshot Metrics::snapshot() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return last_report_;
 }

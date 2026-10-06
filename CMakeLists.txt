@@ -66,6 +66,7 @@ set(SOURCES
     src/core/runtime_state.cpp
     src/core/metrics.cpp
     src/vision/vision_worker.cpp
+    src/vision/tracker.cpp
     src/vision/camera.cpp
     src/vision/preprocessor.cpp
     src/vision/detector.cpp
@@ -164,6 +165,14 @@ endif()
 install(TARGETS edge_vision RUNTIME DESTINATION bin)
 
 include(CTest)
+if(BUILD_TESTING)
+  add_executable(tracker_test tests/tracker_test.cpp src/vision/tracker.cpp src/protocol/serializer.cpp)
+  target_include_directories(tracker_test PRIVATE include)
+  target_compile_definitions(tracker_test PRIVATE BOOT_ID_FILE_PATH="unused")
+  target_compile_options(tracker_test PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME tracker COMMAND tracker_test)
+endif()
+
 if(BUILD_TESTING)
   add_executable(network_integration_test
     tests/network_integration.cpp

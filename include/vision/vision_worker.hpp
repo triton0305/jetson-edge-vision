@@ -8,6 +8,7 @@ class Camera;
 class Preprocessor;
 class Detector;
 class PostProcessor;
+class Tracker;
 class Serializer;
 class MessageQueue;
 class Metrics;
@@ -21,6 +22,7 @@ public:
     Preprocessor& preprocessor,
     Detector& detector,
     PostProcessor& postprocessor,
+    Tracker& tracker,
     Serializer& serializer,
     MessageQueue& message_queue,
     RuntimeState& runtime_state,
@@ -35,6 +37,7 @@ private:
   Preprocessor& preprocessor_;
   Detector& detector_;
   PostProcessor& postprocessor_;
+  Tracker& tracker_;
   Serializer& serializer_;
   MessageQueue& message_queue_;
   RuntimeState& runtime_state_;

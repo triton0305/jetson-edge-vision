@@ -18,6 +18,8 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 Raspberry Pi
 
 - `car`, `motorcycle`, `bus`, `truck` 탐지 및 Class-aware NMS
 - YOLO26n TensorRT engine 기반 GPU 추론
+- Jetson 내부 lightweight 차량 Tracking 및 class / track ID / confidence 표시
+- 화면 좌상단 Effective FPS / Avg Inference / Active Tracks 표시
 - Detection 1개당 `vision` JSON 및 `message_id` 생성
 - Message Queue / Network Worker 기반 영상 처리·송신 분리
 - 4-byte big-endian length-prefix, Partial read/write, full-duplex Control / Reconnect
@@ -34,7 +36,8 @@ USB Webcam에서 차량을 탐지하고, 객체별 `vision` JSON을 Raspberry Pi
 | Detector | OpenCV DNN 모델 로딩·추론 | TensorRT engine·CUDA 버퍼 관리 |
 | 카메라 | V4L2 | V4L2 / YUYV 명시 |
 | 이미지 저장 | 최초 탐지 스냅샷 | 실시간 표시만 수행 |
-| 잔존 코드 | 미사용 Tracker·traffic_count 소스 잔존 | 관련 소스 및 전용 전달 정책 제거 |
+| Tracking | 미사용 Tracker 소스 잔존 | Detection 기반 내부 Tracker 실행, 전송 정책은 유지 |
+| 교통량 집계 | traffic_count 소스 잔존 | Line Crossing·traffic_count 미구현 |
 
 Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 유지합니다. Vision의 application ACK/Retry는 제거했습니다.
 
@@ -52,17 +55,19 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 �
 
 Effective FPS는 영상 처리 속도이며, Produced/Sent Vision msg/s는 객체별 메시지 생성·송신 처리량입니다. 한 프레임에서 여러 차량을 탐지할 수 있으므로 메시지 처리량은 FPS보다 높을 수 있습니다.
 
+Tracking 추가 후 2026-10-02 실제 USB 카메라 / TensorRT / localhost Gateway로 약 91초 실행했습니다. 초반 5개 Metrics 보고 구간을 제외한 72개 구간의 평균은 **12.32 FPS / 54.43 ms inference**였습니다. Produced/Sent 평균은 각각 약 3.033/3.033 msg/s, Queue 0–3, overflow 0이었고, Gateway에서 Vision 244개를 수신했습니다. 차량 수와 장면이 이전 측정과 달라 직접적인 속도 향상이나 장시간 안정성을 입증하는 비교는 아닙니다. Avg Inference는 기존 TensorRT 구간만 측정하며 Tracker 처리 시간을 포함하지 않습니다.
+
 ## Architecture
 
 | **Stage** | **Flow** |
 |---|---|
-| **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS |
-| **② Message Generation** | Detection → 객체별 vision JSON → Message Queue |
+| **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS → Tracker → Display |
+| **② Message Generation** | TrackedDetection의 원본 Detection → 객체별 vision JSON → Message Queue |
 | **③ Delivery** | Data TX → Pi Gateway → WSL Final Server |
 
 | **Component** | **Responsibility** |
 |---|---|
-| **Vision Client** | 프레임 획득, 전처리·추론·후처리, Detection 생성 및 전송 |
+| **Vision Client** | 프레임 획득, 전처리·추론·후처리, 내부 Tracking·표시, Detection 생성 및 전송 |
 | **Pi Gateway** | Vision 전달, downstream Control 전달 |
 | **WSL Final Server** | 최종 데이터 처리 및 SQLite 저장 |
 
@@ -207,13 +212,13 @@ sudo cmake --install build-deploy
 저장소 루트에서 실행합니다.
 
 ```bash
-./pirun <pi_gateway_ip> <pi_gateway_port>
+./run <pi_gateway_ip> <pi_gateway_port>
 ```
 
-`pirun`은 운영 바이너리를 edgevision 계정으로 실행하며 DISPLAY(기본 `:1`)와 XAUTHORITY를 전달합니다. TigerVNC `:1`을 지정하려면 다음과 같이 실행합니다.
+`run`은 운영 바이너리를 edgevision 계정으로 실행하며 DISPLAY(기본 `:1`)와 XAUTHORITY를 전달합니다. TigerVNC `:1`을 지정하려면 다음과 같이 실행합니다.
 
 ```bash
-DISPLAY=:1 ./pirun <pi_gateway_ip> <pi_gateway_port>
+DISPLAY=:1 ./run <pi_gateway_ip> <pi_gateway_port>
 ```
 
 ## Project Structure
@@ -221,11 +226,11 @@ DISPLAY=:1 ./pirun <pi_gateway_ip> <pi_gateway_port>
 | **경로** | **역할** |
 |---|---|
 | include/ · src/core/ | 설정, Boot ID, Message ID, Runtime State, Metrics |
-| include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리 |
+| include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리, Tracker, VisionWorker 표시 |
 | include/ · src/protocol/ | JSON 직렬화 및 메시지 형식 |
 | include/ · src/network/ | Queue, TCP, Control RX, Data TX, Reconnect |
 | src/main.cpp | 초기화 및 Runtime 관리 |
-| tests/ | Network / Transport 자동 검증 |
+| tests/ | Tracker / Network / Transport 자동 검증 |
 | test/ | 원본 프로젝트의 수동 검증 이미지 |
 
 ## Scope and Data Semantics
@@ -234,7 +239,8 @@ DISPLAY=:1 ./pirun <pi_gateway_ip> <pi_gateway_port>
 - Confidence threshold는 0.25, NMS IoU threshold는 0.45입니다.
 - 탐지가 없는 프레임은 메시지를 생성하지 않습니다.
 - 동일 차량의 반복 탐지는 별도 이력이며 고유 차량 수·통과 교통량을 의미하지 않습니다.
-- Tracking, Line Crossing, 통계 메시지, 녹화·스냅샷 저장은 Runtime에 포함하지 않습니다.
+- track_id는 Jetson 내부 Tracking / Display용이며 Vision JSON과 message_id에 포함하지 않습니다. 같은 track_id도 현재 프레임에서 검출될 때마다 기존 방식으로 Vision을 생성합니다.
+- Line Crossing, traffic_count, 고유 차량 수 집계, new-track-only 전송, 서버 track_id 저장, 녹화·스냅샷 저장 기능은 Runtime에 포함하지 않습니다.
 - 시간 구간별 집계와 데이터 보관 정책은 수신 서버의 후처리 영역입니다.
 
 ## Tests and Integration
@@ -245,6 +251,8 @@ cmake --build build -j2
 ./build/bin/edge_vision <pi_gateway_ip> 8000
 ```
 
+`tracker_test`는 합성 monotonic time으로 ID 유지, same-class / one-to-one matching, IoU·중심 거리 경계, 빈 Detection, 800 ms 만료, 삭제 ID 재사용 금지, 입력 순서·Detection 보존 및 Tracking 전후 JSON 일치를 검증합니다.
+
 `network_integration_test`는 실제 localhost TCP socket으로 ACK 없는 송신, 분할 Control, PAUSE/RESUME, 초기 접속 실패 후 재시도, 새 세션 동기화, stale 데이터 차단, Queue 경쟁, blocking receive 종료를 검증합니다.
 
 `network_transport_test`는 Partial write, EINTR/EAGAIN, 송신 deadline, 동시 TX/RX 및 reconnect 등 TCP transport 동작을 검증합니다.
@@ -252,6 +260,18 @@ cmake --build build -j2
 Jetson → Raspberry Pi Gateway → WSL Final Server → SQLite 전체 경로와 PAUSE/RESUME, DB 장애·복구, Jetson↔Pi 연결 장애·복구를 실환경에서 검증했습니다.
 
 상세 검증 범위와 미검증 항목은 [docs/network-validation.md](docs/network-validation.md)를 참고합니다.
+
+## Vehicle Tracking — Stage 1
+
+`include/vision/tracker.hpp`와 `src/vision/tracker.cpp`에 Detection 기반 Tracker를 구현했습니다. 과거 Tracker의 greedy association을 참고하여 같은 클래스에서 IoU가 가장 큰 후보를 선택하고, 같은 IoU이면 중심 거리가 가까운 후보를 선택합니다. 완전히 같은 점수는 먼저 생성된 Track을 선택합니다. 입력 Detection 순서대로 처리하며 이미 연결된 Track을 같은 프레임에서 다시 사용하지 않습니다. Matching은 **IoU ≥ 0.10 또는 중심 거리 ≤ 160 px**일 때 허용합니다. 좌표는 후처리가 복원한 원본 카메라 프레임 기준입니다.
+
+Track은 `steady_clock` 기준 마지막 검출에서 **800 ms 이상** 지나면 matching 전에 제거합니다. `missed_frames`는 내부 누락 정보이며 삭제 조건이 아닙니다. ID는 1부터 증가하고 같은 실행 중 삭제된 ID를 재사용하지 않습니다. 프로세스 재시작 시 1부터 다시 시작합니다.
+
+Tracker는 PostProcessor 직후, Display 이전에 동기적으로 실행합니다. PAUSE 중과 네트워크 연결 상태 변화 중에도 계속 갱신하며 state를 reset하지 않습니다. 빈 Detection에서도 cleanup을 수행하고, 현재 Detection과 같은 수·순서의 결과만 반환합니다. 누락 중 보존한 Track의 과거·예측 bbox는 화면이나 Vision으로 출력하지 않습니다. **Active Tracks는 현재 프레임의 TrackedDetection 수**이며 timeout 대기 중인 내부 Track 수와 다릅니다. 화면 FPS·Inference는 기존 Metrics의 마지막 완료된 보고 구간을 사용하므로 첫 보고 전에는 0을 표시합니다.
+
+Tracking 추가 후 전체 빌드와 Tracker / Network / Transport 테스트 3개가 통과했습니다. 실제 카메라 실행의 localhost Vision 244개에서 기존 JSON 필드가 유지됐고 track_id 필드·중복 message_id는 없었습니다. 해당 실행은 실제 Pi / WSL / SQLite 검증이 아닙니다. Pi Gateway TCP 접속이 불가능하여 이번 Tracking 버전의 외부 E2E는 미검증입니다. 기존 Network 검증 결과는 위 문서의 이전 실행 범위에 한정됩니다.
+
+실제 영상의 일반 주행 ID 유지, 순간 미탐 재연결, 차량 진입·이탈, 교차·밀집·빠른 이동·class flicker의 ID switch 여부는 별도 관찰이 필요합니다. 동일 클래스의 greedy bbox association이므로 이 상황들의 안정성을 보장하지 않습니다. 현재 timeout·matching 기준은 초기값이며 실제 관찰 없이 튜닝하지 않았습니다. Tentative / Confirmed / min_hits, new-track-only, RUNNING epoch별 전송 상태와 교통량 집계는 이후 별도 단계입니다.
 
 ## Related Repositories
 
