@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="#demo">Demo</a> · <a href="#performance">Performance</a> · <a href="#architecture">Architecture</a> · <a href="#validation">Validation</a> · <a href="#build">Build</a>
+  <a href="#demo">Demo</a> · <a href="#performance">Performance</a> · <a href="#architecture">Architecture</a> · <a href="#vehicle-tracking">Tracking</a> · <a href="#validation">Validation</a> · <a href="#build">Build</a>
 </p>
 
 # Jetson Edge Vision
@@ -20,9 +20,9 @@
 
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)의 OpenCV DNN / CPU 추론을 **TensorRT FP16 / CUDA GPU 추론**으로 전환했습니다. Vision 연속 송신과 Control 수신을 분리하고, 서버 장애 시 PAUSE·복구 시 RESUME으로 전송 상태를 제어합니다.
 
-**개발 기간:** 2026.09.30–2026.10.01
+**기본 시스템 개발 기간:** 2026.09.30–2026.10.01
 
-이 문서는 2026.10.01까지 구현·검증한 차량 인지 및 Network / Control 기본 시스템을 중심으로 정리합니다.
+차량 인지 및 Network / Control 기본 시스템은 2026.10.01까지의 검증을 기준으로 정리합니다. 경량 Tracking은 후속 기능이며, 추가 검증 기록은 2026.10.02 기준입니다.
 
 ## Demo
 
@@ -57,7 +57,7 @@ Effective FPS는 영상 처리 속도이며, Produced/Sent Vision msg/s는 객�
 | 영역 | 구현 내용 |
 |---|---|
 | **Perception** | `car`, `motorcycle`, `bus`, `truck` · TensorRT FP16 · Class-aware NMS |
-| **Display** | 차량 Bounding Box · class / confidence · 실시간 탐지 화면 |
+| **Tracking / Display** | 경량 차량 ID 연결 · 0.8초 미검출 Track 정리 · class / ID / confidence 표시 |
 | **Delivery** | Detection 1개당 JSON 1개 · Message Queue · Data TX / Control RX 분리 |
 | **Recovery** | PAUSE 시 대기 큐 폐기 · 재연결 후 세션 동기화 · RESUME 후 새 결과부터 송신 |
 | **Operations** | Queue / Drop / Link / Reconnect 지표 · `/opt`, `/var/lib` 운영 배포 |
@@ -77,7 +77,7 @@ Effective FPS는 영상 처리 속도이며, Produced/Sent Vision msg/s는 객�
 | Detector | OpenCV DNN 모델 로딩·추론 | TensorRT engine·CUDA 버퍼 관리 |
 | 카메라 | V4L2 | V4L2 / YUYV 명시 |
 | 이미지 저장 | 최초 탐지 스냅샷 | 실시간 표시만 수행 |
-| Tracking | 미사용 Tracker 소스 잔존 | 본 문서의 10.01 기본 시스템 범위에서 제외 |
+| Tracking | 미사용 Tracker 소스 잔존 | 후속 경량 Tracker 구현 · 내부 ID 표시 · 기존 Detection 전송 유지 |
 | 교통량 집계 | traffic_count 소스 잔존 | Line Crossing·traffic_count 미구현 |
 
 Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 유지합니다. Vision의 application ACK/Retry는 제거했습니다.
@@ -90,7 +90,7 @@ Letterbox, 차량 필터링, Class-aware NMS와 기존 `vision` JSON 의미는 �
 flowchart TD
     subgraph Vision["Vision loop · PAUSE 중에도 유지"]
         A["USB Webcam / V4L2"] --> B["Letterbox → TensorRT FP16"]
-        B --> C["Vehicle filter → NMS"]
+        B --> C["Vehicle filter → NMS → Tracker"]
         C --> D["Display"]
     end
     C --> E{"RUNNING?"}
@@ -105,13 +105,13 @@ flowchart TD
 
 | **Stage** | **Flow** |
 |---|---|
-| **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS → Display |
-| **② Message Generation** | Detection → 객체별 vision JSON → Message Queue |
+| **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS → Tracker → Display |
+| **② Message Generation** | Tracker 결과의 원본 Detection → 객체별 vision JSON → Message Queue |
 | **③ Delivery** | Data TX → Pi Gateway → WSL Final Server |
 
 | **Component** | **Responsibility** |
 |---|---|
-| **Vision Client** | 프레임 획득, 전처리·추론·후처리, 화면 표시, Detection 생성 및 전송 |
+| **Vision Client** | 프레임 획득, 전처리·추론·후처리, 내부 Tracking·화면 표시, Detection 생성 및 전송 |
 | **Pi Gateway** | Vision 전달, downstream Control 전달 |
 | **WSL Final Server** | 최종 데이터 처리 및 SQLite 저장 |
 
@@ -119,7 +119,7 @@ flowchart TD
 
 ## Network / Control
 
-| 상태 | 영상 처리·표시 | JSON 생성·전송 | 대기 데이터 |
+| 상태 | 영상 처리·Tracking·표시 | JSON 생성·전송 | 대기 데이터 |
 |---|---|---|---|
 | **RUNNING** | 유지 | 새 Detection을 연속 송신 | 최대 16개 Queue |
 | **PAUSED** | 유지 | JSON/ID 생성·enqueue 차단 | Queue 폐기 |
@@ -152,6 +152,39 @@ Control은 version 1 envelope와 문자열 device_id/message_id, 정수 timestam
 Metrics는 FPS, Inference, Produced/Sent msg/s, Queue depth, Overflow drop, PAUSE discard, Network State, Pi Link, Pause Reason, Reconnect count를 출력합니다.
 
 최초 연결은 reconnect count에 포함하지 않습니다. Discard에는 장애 전환 때 버린 pending 메시지와 이미 pop한 전송 불가 메시지를 포함합니다.
+
+</details>
+
+## Vehicle Tracking
+
+차량의 Bounding Box를 프레임 간 연결하여 **같은 차량의 ID를 유지하고 화면에 표시하는 경량 Tracker**입니다. 별도 추적 모델 없이 같은 클래스의 위치 정보를 비교하며, NMS 후·화면 표시 전에 실행합니다.
+
+| 항목 | 동작 |
+|---|---|
+| 연결 대상 | 같은 클래스의 Detection과 기존 Track |
+| 연결 조건 | **IoU ≥ 0.10 또는 중심 거리 ≤ 160 px** · 원본 프레임 좌표 기준 |
+| 후보 선택 | Detection 입력 순서대로 IoU가 가장 큰 후보 선택 → 동률이면 중심 거리가 가까운 후보 |
+| 중복 연결 방지 | 한 프레임에서 각 Track은 하나의 Detection에만 연결 |
+| 유지 시간 | 마지막 검출 이후 **0.8초 미만**이면 연결 후보로 유지 |
+| 만료 처리 | **0.8초 이상 미검출**이면 다음 update에서 matching 전에 삭제 |
+| ID 관리 | 새 Track에 증가하는 ID 부여 · 같은 실행에서 삭제 ID 재사용 없음 |
+
+**0.8초는 ID 교체 주기가 아니라 미검출 허용 시간입니다.** 계속 검출되면 마지막 검출 시간이 갱신되어 같은 ID를 유지합니다. 잠시 놓친 차량은 0.8초 안에 다시 검출되고 연결 조건을 만족하면 기존 ID로 연결됩니다.
+
+Track을 보관하는 동안에도 현재 프레임에서 검출되지 않은 차량의 과거 Bounding Box는 표시하거나 송신하지 않습니다. PAUSE 중에도 영상 처리와 Tracker 갱신은 계속됩니다.
+
+`track_id`는 Jetson 내부 표시용이며 **Vision JSON에는 포함하지 않습니다.** 동일 ID도 현재 프레임에서 검출될 때마다 기존 방식으로 객체별 Vision을 생성합니다. 고유 차량 수·통과 교통량 집계는 포함하지 않습니다.
+
+<details>
+<summary><strong>테스트·실행 기록과 적용 범위</strong></summary>
+
+기존 2026.10.02 기록에서 전체 빌드와 Tracker / Network / Transport 테스트 3개가 통과했습니다. Tracker 테스트는 ID 유지, 같은 클래스·일대일 연결, 800 ms 만료 경계, 빈 Detection 처리, 삭제 ID 재사용 금지 및 Tracking 전후 JSON 일치를 확인했습니다.
+
+실제 USB 카메라·TensorRT와 localhost Gateway로 약 91초 실행하여 Vision 244개 수신, 기존 JSON 필드 유지 및 중복 message_id 없음을 확인했습니다. 이 실행은 실제 Pi / WSL / SQLite 전체 경로의 검증이 아니며, Tracking 추가 버전의 외부 E2E는 미검증입니다.
+
+밀집·교차·빠른 이동·클래스 변동 상황의 ID 유지 품질은 별도 실영상 관찰이 필요합니다. 현재 구현은 Bounding Box 기반 greedy 연결 방식이며, 0.8초 유지가 모든 상황에서 동일 차량 ID를 보장하지는 않습니다.
+
+구현: [tracker.hpp](include/vision/tracker.hpp) · [tracker.cpp](src/vision/tracker.cpp)
 
 </details>
 
@@ -334,11 +367,11 @@ Vision과 Control은 `4-byte big-endian payload length + JSON` 형식입니다.
 | **경로** | **역할** |
 |---|---|
 | include/ · src/core/ | 설정, Boot ID, Message ID, Runtime State, Metrics |
-| include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리, VisionWorker 표시 |
+| include/ · src/vision/ | Camera, 전처리, TensorRT 추론, 후처리, Tracker, VisionWorker 표시 |
 | include/ · src/protocol/ | JSON 직렬화 및 메시지 형식 |
 | include/ · src/network/ | Queue, TCP, Control RX, Data TX, Reconnect |
 | src/main.cpp | 초기화 및 Runtime 관리 |
-| tests/ | Network / Transport 자동 검증 |
+| tests/ | Tracker / Network / Transport 자동 검증 |
 | test/ | 원본 프로젝트의 수동 검증 이미지 |
 
 </details>
