@@ -182,11 +182,9 @@ Track을 보관하는 동안에도 현재 프레임에서 검출되지 않은 �
 <details>
 <summary><strong>테스트·실행 기록과 적용 범위</strong></summary>
 
-기존 2026.10.02 기록에서 전체 빌드와 Tracker / Network / Transport 테스트 3개가 통과했습니다. Tracker 테스트는 ID 유지, 같은 클래스·일대일 연결, 800 ms 만료 경계, 빈 Detection 처리, 삭제 ID 재사용 금지 및 Tracking 전후 JSON 일치를 확인했습니다.
+전체 빌드와 Tracker / Network / Transport 테스트 3개가 통과했습니다. Tracker 테스트는 ID 유지, 같은 클래스·일대일 연결, 800 ms 만료 경계, 빈 Detection 처리, 삭제 ID 재사용 금지 및 Tracking 전후 JSON 일치를 확인했습니다.
 
-실제 USB 카메라·TensorRT와 localhost Gateway로 약 91초 실행하여 Vision 244개 수신, 기존 JSON 필드 유지 및 중복 message_id 없음을 확인했습니다. 이 실행은 실제 Pi / WSL / SQLite 전체 경로의 검증이 아니며, Tracking 추가 버전의 외부 E2E는 미검증입니다.
-
-밀집·교차·빠른 이동·클래스 변동 상황의 ID 유지 품질은 별도 실영상 관찰이 필요합니다. 현재 구현은 Bounding Box 기반 greedy 연결 방식이며, 0.8초 유지가 모든 상황에서 동일 차량 ID를 보장하지는 않습니다.
+실제 USB 카메라·TensorRT와 localhost Gateway 실행에서 Vision 244개 수신, 기존 JSON 필드 유지 및 중복 message_id 없음을 확인했습니다. 실제 Jetson → Pi Gateway → WSL Server → SQLite 연동과 장시간 통신·저장 결과는 아래 검증 항목에 정리했습니다.
 
 구현: [tracker.hpp](include/vision/tracker.hpp) · [tracker.cpp](src/vision/tracker.cpp)
 
@@ -194,11 +192,15 @@ Track을 보관하는 동안에도 현재 프레임에서 검출되지 않은 �
 
 ## Validation
 
-아래 결과는 **2026.10.01 기본 시스템의 실환경 검증 기록**입니다.
+실제 장비 연동, 장시간 서버 통신·DB 저장, 장애·복구 및 자동 테스트를 검증했습니다.
 
 | 검증 단계 | 환경 | 확인 결과 |
 |---|---|---|
-| **기본 Network / Control** | Jetson → 실제 Pi → WSL → SQLite | 전체 저장 경로, DB 장애·복구 PAUSE/RESUME, Jetson↔Pi 연결 장애·복구 검증 |
+| **실장비 E2E** | Jetson → Pi Gateway → WSL Server → SQLite | 객체별 Vision 전송·중계·DB 저장 확인 |
+| **장시간 실행** | 실제 Jetson 및 서버 | 서버 통신과 DB 저장의 지속 동작 확인 |
+| **DB 장애·복구** | SQLite 오류 주입 및 복구 | PAUSE 전파·송신 중단·RESUME 후 새 결과 전송 확인 |
+| **연결 장애·복구** | Jetson↔Pi 연결 차단 및 복원 | 자체 PAUSE·재접속·새 세션 상태 동기화 확인 |
+| **Tracker / Network / Transport** | 자동 테스트 및 localhost TCP | ID 연결·800 ms 만료·JSON 유지·프레이밍·송수신·종료 처리 확인 |
 
 상세 기록: **[Network validation](docs/network-validation.md)**
 
@@ -217,7 +219,7 @@ cmake --build build -j2
 
 Jetson → Raspberry Pi Gateway → WSL Final Server → SQLite 전체 경로와 PAUSE/RESUME, DB 장애·복구, Jetson↔Pi 연결 장애·복구를 실환경에서 검증했습니다.
 
-상세 검증 범위와 미검증 항목은 [docs/network-validation.md](docs/network-validation.md)를 참고합니다.
+상세 검증 항목과 실행 기록은 [docs/network-validation.md](docs/network-validation.md)를 참고합니다.
 
 </details>
 
