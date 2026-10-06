@@ -22,7 +22,7 @@
 
 ## Development History
 
-| 날짜 (커밋 기준) | 개발 내용 |
+| 날짜               | 개발 내용 |
 |---|---|
 | [2026.09.30](https://github.com/triton0305/jetson-edge-vision/commit/1dd62da4ebb6ca4ef49b82abcf30a3e654c29595) | Jetson Nano 이식 및 TensorRT FP16 GPU 추론 전환 |
 | [2026.10.01](https://github.com/triton0305/jetson-edge-vision/commit/dd5f1f17d7398a244669e689ed74bd0ac0cf197a) | Network / Control 및 장애·복구 처리 구현 |
