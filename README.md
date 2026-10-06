@@ -20,9 +20,13 @@
 
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)의 OpenCV DNN / CPU 추론을 **TensorRT FP16 / CUDA GPU 추론**으로 전환했습니다. Vision 연속 송신과 Control 수신을 분리하고, 서버 장애 시 PAUSE·복구 시 RESUME으로 전송 상태를 제어합니다.
 
-**기본 시스템 개발 기간:** 2026.09.30–2026.10.01
+## Development History
 
-차량 인지 및 Network / Control 기본 시스템은 2026.10.01까지의 검증을 기준으로 정리합니다. 경량 Tracking은 후속 기능이며, 추가 검증 기록은 2026.10.02 기준입니다.
+| 날짜 (커밋 기준) | 개발 내용 |
+|---|---|
+| [2026.09.30](https://github.com/triton0305/jetson-edge-vision/commit/1dd62da4ebb6ca4ef49b82abcf30a3e654c29595) | Jetson Nano 이식 및 TensorRT FP16 GPU 추론 전환 |
+| [2026.10.01](https://github.com/triton0305/jetson-edge-vision/commit/dd5f1f17d7398a244669e689ed74bd0ac0cf197a) | Network / Control 및 장애·복구 처리 구현 |
+| [2026.10.06](https://github.com/triton0305/jetson-edge-vision/commit/703e7b87ce4ed206c1cfbb48b78ca949c2699927) | 경량 차량 Tracking 추가 및 실행 스크립트 정리 |
 
 ## Demo
 
