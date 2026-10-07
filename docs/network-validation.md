@@ -18,7 +18,7 @@ Jetson Nano에서 차량을 인지하고 객체별 Vision JSON을 Raspberry Pi G
 | 종료 처리 | SIGINT 및 blocking I/O 테스트 | socket shutdown·스레드 join·정상 종료 |
 | 경량 Tracker | 자동 테스트 및 카메라 실행 | ID 연결·800 ms 만료·기존 Vision JSON 유지 |
 
-검증 근거는 Jetson 실행 로그·패킷 캡처·자동 테스트와 사용자가 확인한 Pi/WSL 카운터·SQLite 저장 결과·장시간 실장비 실행입니다. 아래 수치와 이벤트 시간은 각각의 관찰 구간 기준이며, 장시간 실행의 총 시간은 별도로 수치화하지 않습니다.
+검증 근거는 Jetson 실행 로그·패킷 캡처·자동 테스트와 사용자가 확인한 Pi/WSL 카운터·SQLite 저장 결과·장시간 실장비 실행입니다.
 
 ## 통신·상태 제어 구조
 
