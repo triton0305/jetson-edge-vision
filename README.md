@@ -28,6 +28,50 @@
 | [2026.10.01](https://github.com/triton0305/jetson-edge-vision/commit/dd5f1f17d7398a244669e689ed74bd0ac0cf197a) | Network / Control 및 장애·복구 처리 구현 |
 | [2026.10.06](https://github.com/triton0305/jetson-edge-vision/commit/703e7b87ce4ed206c1cfbb48b78ca949c2699927) | 경량 차량 Tracking 추가 및 실행 스크립트 정리 |
 
+## Validation
+
+Jetson Nano와 Raspberry Pi Gateway, WSL 기반 검증 서버를 연결해 TensorRT 추론부터 Vision 중계, SQLite 저장까지 전체 경로와 장애·복구 동작을 검증했습니다.
+
+| 검증 범위 | 확인 항목 | 결과 |
+|---|---|:---:|
+| Vision | USB Webcam · TensorRT YOLO26n FP16 · 차량 탐지 / NMS · Tracking / Display | PASS |
+| E2E | Jetson → Pi Gateway → WSL 검증 서버 → SQLite | PASS |
+| 전송 / 제어 | Continuous Vision TX · PAUSE / RESUME · 재연결 / 상태 동기화 | PASS |
+| 장애 / 복구 | DB Write 실패 · Jetson↔Pi 연결 장애 · 복구 후 stale data 차단 | PASS |
+| 종료 | Blocking I/O 해제 · SIGINT Graceful Shutdown | PASS |
+| 자동 테스트 | Tracker · Network Integration · Network Transport | 3/3 PASS |
+
+<details>
+<summary><strong>자동 테스트 및 트러블슈팅 상세</strong></summary>
+
+| 테스트 | 검증 내용 |
+|---|---|
+| `tracker` | 동일 클래스 ID 연결 · IoU / 중심 거리 경계 · 800 ms 만료 · ID 재사용 방지 · 기존 Vision JSON 유지 |
+| `network_integration` | ACK 없는 연속 송신 · Control · PAUSE / RESUME · 재연결 · 새 세션 상태 동기화 · stale data 차단 · Queue 경쟁 · 종료 |
+| `network_transport` | 4-byte big-endian framing · Partial I/O · EINTR / EAGAIN · 송신 deadline · 동시 TX/RX · reconnect · payload 검증 |
+
+**TensorRT 가속 후 Queue 포화** — Raspberry Pi의 OpenCV DNN / CPU 추론을 Jetson Nano의 TensorRT / CUDA FP16 추론으로 전환하면서 처리 속도는 크게 향상됐지만, Vision 생성 속도가 Network Worker의 처리 속도를 넘어서며 Queue가 포화되고 메시지가 폐기되는 문제가 발생했습니다. Effective FPS와 추론 시간뿐 아니라 Produced / Sent 처리량, Queue depth, overflow drop을 함께 측정해 AI 추론이 아닌 Network Worker가 새로운 병목임을 확인했습니다.
+
+**Stop-and-Wait ACK 병목** — Raspberry Pi 환경에서 전송 신뢰성을 위해 사용하던 객체별 ACK 방식은 Jetson의 TensorRT 전환으로 Vision 생성량이 증가하면서 Network Worker의 병목으로 나타났습니다. 단순히 Queue 크기를 늘리는 대신 정상 Vision 경로의 per-message ACK / Retry를 제거하고 Continuous TX 방식으로 변경했습니다. 이후 안정 구간에서 Produced / Sent 처리량이 대응하고 Queue overflow가 발생하지 않는 것을 확인했습니다.
+
+**Continuous TX 전환 후 장애 제어** — per-message ACK를 제거하면 전송 처리량은 개선되지만 Jetson이 downstream Server 또는 DB의 처리 불능 상태를 메시지마다 확인할 수 없게 됩니다. 이에 정상 Vision 데이터 경로와 장애 제어 경로를 분리해 Vision은 연속 송신하고, 장애 상태는 검증 서버 → Pi Gateway → Jetson으로 `PAUSE` / `RESUME` Control을 전달하도록 재설계했습니다.
+
+**TCP 연결과 서비스 상태 분리** — TCP 연결이 복구됐더라도 downstream DB까지 정상이라는 보장은 없기 때문에 `TCP connected = RUNNING`으로 처리하지 않았습니다. 연결 및 재연결 직후에는 PAUSED 상태에서 현재 세션의 Control을 기다리고, `RESUME`을 수신한 뒤에만 새로운 Vision 전송을 시작하도록 변경했습니다. 이를 통해 Connection State와 Application State를 분리했습니다.
+
+**PAUSE 중 과거 데이터 누적** — 장애 중에도 Vision을 Queue에 계속 적재하면 복구 후 오래된 Detection이 재전송되어 실시간 데이터의 의미가 훼손될 수 있습니다. PAUSE 시 신규 JSON / message_id 생성과 enqueue를 차단하고 대기 Queue를 비우며, Camera · TensorRT · Display는 계속 동작하도록 구성했습니다. 상태 변경 epoch를 기준으로 PAUSE / RESUME 경계를 가로지른 오래된 프레임도 제외하고, RESUME 후 새로운 Detection부터 전송합니다.
+
+**DB 장애 → PAUSE / RESUME** — SQLite INSERT 오류를 주입해 검증 서버가 `pause / database_write_failed`를 생성하고 Pi Gateway를 거쳐 Jetson까지 전달되는 것을 검증했습니다. PAUSED 구간에서는 Produced / Sent가 0, Queue / overflow가 0인 상태를 유지하면서 영상 처리는 약 12 FPS, TensorRT 추론은 약 55 ms 수준으로 계속됐습니다. DB 복구 후 `resume / database_recovered`를 수신하고 새로운 Detection부터 전송을 재개했으며, 검증 구간에서 과거 timestamp replay와 중복 message_id가 없음을 확인했습니다.
+
+**Jetson↔Pi 링크 장애·복구** — Jetson과 Pi Gateway 사이의 TCP 연결을 차단해 연결 오류 감지, 자체 PAUSE, Pi Link DOWN, Vision 생성·송신 중단을 확인했습니다. 연결 복구 후에는 새 TCP 세션에서 즉시 송신하지 않고 현재 Control 상태를 동기화한 뒤 `RESUME` 이후 새로운 Vision부터 전송했습니다. 장애 중에도 Camera / TensorRT 처리는 계속됐으며, 복구 구간에서 과거 데이터 replay와 중복 ID가 없음을 확인했습니다.
+
+**TCP Stream 경계와 Partial I/O** — TCP는 한 번의 `send()`와 `recv()`가 하나의 메시지 경계를 보장하지 않기 때문에 `4-byte big-endian payload length + JSON` framing을 사용하고 Partial read / write를 처리했습니다. 자동 테스트에서 short write, EINTR / EAGAIN, 작은 단위 receive를 이용한 1 MiB framed transfer 복원, 잘못된 payload 길이, 송신 deadline과 reconnect 동작을 검증했습니다.
+
+**Blocking I/O 종료 처리** — Network Thread가 blocking receive 또는 send 상태에 있으면 SIGINT 이후 thread join이 지연될 수 있습니다. 종료 시 Queue를 닫고 socket shutdown으로 blocking I/O를 해제한 뒤 각 Worker Thread를 join하도록 구성했으며, partial / blocking receive 상태에서도 정상 종료되는 것을 자동 테스트로 확인했습니다.
+
+**전달 보장 범위** — `Sent`는 Jetson의 전체 framed message가 로컬 TCP socket에 정상적으로 전달됐음을 의미하며 검증 서버의 DB 저장 완료를 의미하지 않습니다. Vision 경로는 실시간성을 우선해 application-level ACK / Retry / replay를 사용하지 않으며, 최종 저장 여부는 Pi Gateway와 검증 서버의 수신 카운터 및 SQLite 저장 결과를 통해 별도로 검증했습니다.
+
+</details>
+
 ## Demo
 
 <p align="center">
