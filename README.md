@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="#demo">Demo</a> · <a href="#performance">Performance</a> · <a href="#architecture">Architecture</a> · <a href="#vehicle-tracking">Tracking</a> · <a href="#validation">Validation</a> · <a href="#build">Build</a>
+  <a href="#validation">Validation</a> · <a href="#demo">Demo</a> · <a href="#performance">Performance</a> · <a href="#architecture">Architecture</a> · <a href="#vehicle-tracking">Tracking</a> · <a href="#build">Build</a>
 </p>
 
 # Jetson Edge Vision
@@ -75,9 +75,9 @@ Jetson Nano와 Raspberry Pi Gateway, WSL 기반 검증 서버를 연결해 Tenso
 ## Demo
 
 <p align="center">
-  <img src="docs/assets/vehicle-detection.jpg" alt="Jetson Nano에서 TensorRT FP16으로 실제 도로의 차량을 탐지하는 실행 화면" width="780">
+  <img src="docs/assets/vehicle-detection.jpg" alt="Jetson Nano에서 TensorRT FP16으로 도로의 차량을 탐지하는 실행 화면" width="780">
 </p>
-<p align="center"><sub>2026.10.01 실제 USB Webcam / TensorRT 실행 화면</sub></p>
+<p align="center"><sub>2026.10.01 USB Webcam / TensorRT 실행 화면</sub></p>
 
 | 영상 처리 | GPU 추론 | Pi 대비 처리 속도 |
 |:---:|:---:|:---:|
@@ -145,7 +145,7 @@ flowchart TD
     E -->|Yes| F["Detection → JSON → Queue"]
     F --> G["Data TX"]
     G -->|Vision| P["Raspberry Pi Gateway"]
-    P -->|Vision| S["WSL Relay / SQLite"]
+    P -->|Vision| S["WSL 검증 서버 / SQLite"]
     S -.->|PAUSE / RESUME| P
     P -.->|Control| R["Control RX / Runtime state"]
     R -.->|전송 상태 제어| E
@@ -155,15 +155,15 @@ flowchart TD
 |---|---|
 | **① Vision Loop** | USB Webcam / V4L2 → Letterbox 640×640 → TensorRT → Class-aware NMS → Tracker → Display |
 | **② Message Generation** | Tracker 결과의 원본 Detection → 객체별 vision JSON → Message Queue |
-| **③ Delivery** | Data TX → Pi Gateway → WSL Final Server |
+| **③ Delivery** | Data TX → Pi Gateway → WSL 검증 서버 |
 
 | **Component** | **Responsibility** |
 |---|---|
 | **Vision Client** | 프레임 획득, 전처리·추론·후처리, 내부 Tracking·화면 표시, Detection 생성 및 전송 |
 | **Pi Gateway** | Vision 전달, downstream Control 전달 |
-| **WSL Final Server** | 최종 데이터 처리 및 SQLite 저장 |
+| **WSL 검증 서버** | Vision 수신 및 SQLite 저장 · DB 상태 Control 생성 |
 
-현재 검증 환경에서는 Jetson → Pi Gateway 구간에 TCP 8000, Pi Gateway → WSL Final Server 구간에 TCP 9000을 사용했습니다. 포트 번호는 고정 프로토콜 요구사항이 아니며 실행·배포 환경에 맞게 지정할 수 있습니다.
+현재 검증 환경에서는 Jetson → Pi Gateway 구간에 TCP 8000, Pi Gateway → WSL 검증 서버 구간에 TCP 9000을 사용했습니다. 포트 번호는 고정 프로토콜 요구사항이 아니며 실행·배포 환경에 맞게 지정할 수 있습니다.
 
 ## Network / Control
 
@@ -173,12 +173,12 @@ flowchart TD
 | **PAUSED** | 유지 | JSON/ID 생성·enqueue 차단 | Queue 폐기 |
 | **재연결 직후** | 유지 | 현재 세션의 `resume`까지 대기 | 과거 데이터 replay 없음 |
 
-DB 장애는 WSL → Pi → Jetson으로 PAUSE를 전달하며, 복구 후 새 결과부터 송신합니다. 이미 송신을 시작했거나 TCP 버퍼에 들어간 바이트는 회수할 수 없습니다.
+DB 장애는 WSL 검증 서버 → Pi → Jetson으로 PAUSE를 전달하며, 복구 후 새 결과부터 송신합니다. 이미 송신을 시작했거나 TCP 버퍼에 들어간 바이트는 회수할 수 없습니다.
 
 <details>
 <summary><strong>연결·재시도·Timeout·Control 검증·Metrics 상세</strong></summary>
 
-Jetson은 Pi Gateway와 TCP로 연결하고, Pi Gateway는 WSL Final Server와 별도 TCP 연결을 유지합니다. 현재 실환경 검증에서는 각각 8000과 9000을 사용했습니다.
+Jetson은 Pi Gateway와 TCP로 연결하고, Pi Gateway는 WSL 검증 서버와 별도 TCP 연결을 유지합니다. 검증 환경에서는 각각 8000과 9000을 사용했습니다.
 
 하나의 Jetson↔Pi 연결에서 Data TX가 Vision을 보내고 Control RX가 Control을 받습니다. Control RX가 연결과 재연결을 관리하므로 Queue가 비어 있거나 PAUSED여도 재연결합니다.
 
@@ -190,7 +190,7 @@ Jetson은 Pi Gateway와 TCP로 연결하고, Pi Gateway는 WSL Final Server와 �
 - 이미 송신을 시작했거나 TCP 버퍼에 들어간 바이트는 PAUSE로 회수할 수 없습니다. 새 송신을 차단하고 복구 시 replay하지 않습니다.
 - Queue 최대 16개, overflow 시 가장 오래된 메시지를 폐기합니다.
 - 연결 시도 제한 1초, 재시도 간격 1초. 송신 prefix/payload 각각 최대 1초입니다.
-- Control idle timeout은 없습니다. Linux TCP keepalive(10초 idle, 3초 interval, 3 probes)와 TCP_USER_TIMEOUT(20초)을 설정합니다. 실제 장애 검출 시간은 커널·네트워크 상태에 따릅니다.
+- Control idle timeout은 없습니다. Linux TCP keepalive(10초 idle, 3초 interval, 3 probes)와 TCP_USER_TIMEOUT(20초)을 설정합니다. 장애 검출 시간은 커널·네트워크 상태에 따릅니다.
 - 종료 시 Queue를 닫고 socket shutdown으로 blocking I/O를 깨운 뒤 join합니다.
 
 Control은 version 1 envelope와 문자열 device_id/message_id, 정수 timestamp_ms, 문자열 action/reason을 요구합니다. action은 소문자 `pause` 또는 `resume`입니다.
@@ -228,7 +228,7 @@ Track을 보관하는 동안에도 현재 프레임에서 검출되지 않은 �
 
 전체 빌드와 Tracker / Network / Transport 테스트 3개가 통과했습니다. Tracker 테스트는 ID 유지, 같은 클래스·일대일 연결, 800 ms 만료 경계, 빈 Detection 처리, 삭제 ID 재사용 금지 및 Tracking 전후 JSON 일치를 확인했습니다.
 
-실제 USB 카메라·TensorRT와 localhost Gateway 실행에서 Vision 244개 수신, 기존 JSON 필드 유지 및 중복 message_id 없음을 확인했습니다. 실제 Jetson → Pi Gateway → WSL Server → SQLite 연동과 장시간 통신·저장 결과는 아래 검증 항목에 정리했습니다.
+USB 카메라·TensorRT와 localhost Gateway 실행에서 Vision 244개 수신, 기존 JSON 필드 유지 및 중복 message_id 없음을 확인했습니다. Jetson → Pi Gateway → WSL 검증 서버 → SQLite 연동과 장시간 통신·저장 결과는 Validation에 정리했습니다.
 
 구현: [tracker.hpp](include/vision/tracker.hpp) · [tracker.cpp](src/vision/tracker.cpp)
 
@@ -369,7 +369,7 @@ Vision과 Control은 `4-byte big-endian payload length + JSON` 형식입니다.
 
 ## Scope and Data Semantics
 
-- 카메라는 YUYV 640×480@30을 요청하며 실제 처리 FPS와 구분합니다.
+- 카메라는 YUYV 640×480@30을 요청하며 처리 FPS와 구분합니다.
 - Confidence threshold는 0.25, NMS IoU threshold는 0.45입니다.
 - 탐지가 없는 프레임은 메시지를 생성하지 않습니다.
 - 동일 차량의 반복 탐지는 별도 이력이며 고유 차량 수·통과 교통량을 의미하지 않습니다.
