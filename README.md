@@ -234,39 +234,6 @@ Track을 보관하는 동안에도 현재 프레임에서 검출되지 않은 �
 
 </details>
 
-## Validation
-
-실제 장비 연동, 장시간 서버 통신·DB 저장, 장애·복구 및 자동 테스트를 검증했습니다.
-
-| 검증 단계 | 환경 | 확인 결과 |
-|---|---|---|
-| **실장비 E2E** | Jetson → Pi Gateway → WSL Server → SQLite | 객체별 Vision 전송·중계·DB 저장 확인 |
-| **장시간 실행** | 실제 Jetson 및 서버 | 서버 통신과 DB 저장의 지속 동작 확인 |
-| **DB 장애·복구** | SQLite 오류 주입 및 복구 | PAUSE 전파·송신 중단·RESUME 후 새 결과 전송 확인 |
-| **연결 장애·복구** | Jetson↔Pi 연결 차단 및 복원 | 자체 PAUSE·재접속·새 세션 상태 동기화 확인 |
-| **Tracker / Network / Transport** | 자동 테스트 및 localhost TCP | ID 연결·800 ms 만료·JSON 유지·프레이밍·송수신·종료 처리 확인 |
-
-상세 기록: **[Network validation](docs/network-validation.md)**
-
-<details>
-<summary><strong>테스트 실행 방법과 검증 항목</strong></summary>
-
-```bash
-cmake --build build -j2
-(cd build && ctest --output-on-failure)
-./build/bin/edge_vision <pi_gateway_ip> 8000
-```
-
-`network_integration_test`는 실제 localhost TCP socket으로 ACK 없는 송신, 분할 Control, PAUSE/RESUME, 초기 접속 실패 후 재시도, 새 세션 동기화, stale 데이터 차단, Queue 경쟁, blocking receive 종료를 검증합니다.
-
-`network_transport_test`는 Partial write, EINTR/EAGAIN, 송신 deadline, 동시 TX/RX 및 reconnect 등 TCP transport 동작을 검증합니다.
-
-Jetson → Raspberry Pi Gateway → WSL Final Server → SQLite 전체 경로와 PAUSE/RESUME, DB 장애·복구, Jetson↔Pi 연결 장애·복구를 실환경에서 검증했습니다.
-
-상세 검증 항목과 실행 기록은 [docs/network-validation.md](docs/network-validation.md)를 참고합니다.
-
-</details>
-
 ## Build
 
 ### Requirements
