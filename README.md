@@ -390,3 +390,4 @@ Vision과 Control은 `4-byte big-endian payload length + JSON` 형식입니다.
 | [Raspberry Pi Edge Vision Gateway](https://github.com/triton0305/raspberry-pi-edge-vision-gateway) | Vision 중계 · downstream Control 전달 |
 | [Jetson Edge Vision Relay Server](https://github.com/triton0305/jetson-edge-vision-relay-server) | Vision 수신 · SQLite 저장 · DB 상태 Control 생성 |
 | [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision) | OpenCV DNN / CPU 기반 원본 프로젝트 |
+| [Jetson Traffic CCTV Vision](https://github.com/triton0305/jetson-traffic-cctv-vision) | UTIC 실시간 CCTV 입력 · 1초 주기 탐지 결과 전송 확장 버전 |
