@@ -75,7 +75,7 @@ Jetson Nano와 Raspberry Pi Gateway, WSL 기반 검증 서버를 연결해 Tenso
 ## Demo
 
 <p align="center">
-  <img src="docs/assets/vehicle-detection.jpg" alt="Jetson Nano에서 TensorRT FP16으로 도로의 차량을 탐지하는 실행 화면" width="780">
+  <img width="640" height="480" alt="Screen_Recording_20261009_084500_Chrome(2)" src="https://github.com/user-attachments/assets/65f7c0df-e82c-44ea-b88a-ec431d3c514f" />
 </p>
 <p align="center"><sub>2026.10.01 USB Webcam / TensorRT 실행 화면</sub></p>
 
