@@ -20,6 +20,8 @@
 
 [Raspberry Pi Edge Vision](https://github.com/triton0305/raspberry-pi-edge-vision)의 OpenCV DNN / CPU 추론을 **TensorRT FP16 / CUDA GPU 추론**으로 전환했습니다. Vision 연속 송신과 Control 수신을 분리하고, 서버 장애 시 PAUSE·복구 시 RESUME으로 전송 상태를 제어합니다.
 
+팀 프로젝트 요구사항에 맞춰 [Jetson Traffic CCTV Vision](https://github.com/triton0305/jetson-traffic-cctv-vision)으로 확장했습니다. TensorRT FP16 추론 파이프라인에 UTIC CCTV 입력을 연결하고, 최신 프레임의 차량 탐지 결과와 차량 수를 1초 주기로 팀 Relay Server에 전송하도록 구현했습니다.
+
 ## Development History
 
 | 날짜 | 개발 내용 |
