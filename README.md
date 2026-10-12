@@ -10,9 +10,11 @@
   <img src="https://img.shields.io/badge/OpenCV-V4L2-5C3EE8?style=flat-square" alt="OpenCV V4L2">
 </p>
 
+
 <p align="center">
-  <a href="#validation">Validation</a> · <a href="#demo">Demo</a> · <a href="#performance">Performance</a> · <a href="#architecture">Architecture</a> · <a href="#vehicle-tracking">Tracking</a> · <a href="#build">Build</a>
+  <a href="#development-process">Development Process</a> · <a href="#troubleshooting">Troubleshooting</a> · <a href="#architecture">Architecture</a> · <a href="#build">Build</a>
 </p>
+
 
 # Jetson Edge Vision
 
