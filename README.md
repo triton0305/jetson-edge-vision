@@ -36,7 +36,7 @@ Queue 병목, ACK 정책, PAUSE / RESUME과 분산 장애 처리의 요구사항
 
 설계 과정에서 결정한 정책은 C++ 구현과 자동 테스트, Jetson → Pi Gateway → WSL 검증 서버의 실장비 연동으로 검증했습니다.
 
-- [System Design & AI Collaboration](docs/DESIGN_PROCESS.md) — 설계 의사결정, AI 협업 방식 및 역할 분담
+[▶ System Design & AI Collaboration](docs/DESIGN_PROCESS.md) — 설계 의사결정, AI 협업 방식 및 역할 분담
 
 ## Validation
 
