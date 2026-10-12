@@ -38,6 +38,15 @@ Queue 병목, ACK 정책, PAUSE / RESUME과 분산 장애 처리의 요구사항
 
 [▶ System Design & AI Collaboration](docs/DESIGN_PROCESS.md) — 설계 의사결정, AI 협업 방식 및 역할 분담
 
+## Troubleshooting
+
+Raspberry Pi 기반 Vision Client를 Jetson Nano로 포팅하고 TensorRT FP16 추론, 네트워크 전송 구조 개선, 장애 제어 및 서버 연동을 진행하면서 발생한 문제와 해결 과정을 정리했습니다.
+
+TensorRT 가속 이후 발생한 Queue 포화와 Stop-and-Wait ACK 병목, Continuous TX 전환, PAUSE / RESUME 기반 장애 복구, 실제 서버 연동 과정의 문제를 중심으로 12개 사례를 정리했습니다.
+
+[▶ Troubleshooting](docs/TROUBLESHOOTING.md) — 주요 문제의 증상, 원인 분석, 해결 과정 및 검증 결과
+[▶ Troubleshooting Archive](docs/TROUBLESHOOTING_ARCHIVE.md) — 개발 과정에서 수집한 원본 64개 항목
+
 ## Validation
 
 Jetson Nano와 Raspberry Pi Gateway, WSL 기반 검증 서버를 연결해 TensorRT 추론부터 Vision 중계, SQLite 저장까지 전체 경로와 장애·복구 동작을 검증했습니다.
