@@ -45,6 +45,7 @@ Raspberry Pi 기반 Vision Client를 Jetson Nano로 포팅하고 TensorRT FP16 �
 TensorRT 가속 이후 발생한 Queue 포화와 Stop-and-Wait ACK 병목, Continuous TX 전환, PAUSE / RESUME 기반 장애 복구, 실제 서버 연동 과정의 문제를 중심으로 12개 사례를 정리했습니다.
 
 [▶ Troubleshooting](docs/TROUBLESHOOTING.md) — 주요 문제의 증상, 원인 분석, 해결 과정 및 검증 결과
+
 [▶ Troubleshooting Archive](docs/TROUBLESHOOTING_ARCHIVE.md) — 개발 과정에서 수집한 원본 64개 항목
 
 ## Validation
