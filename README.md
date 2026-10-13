@@ -48,8 +48,6 @@ TensorRT 가속 이후 발생한 Queue 포화와 Stop-and-Wait ACK 병목, Conti
 
 [▶ Troubleshooting](docs/TROUBLESHOOTING.md) — 주요 문제의 증상, 원인 분석, 해결 과정 및 검증 결과
 
-[▶ Troubleshooting Archive](docs/TROUBLESHOOTING_ARCHIVE.md) — 개발 과정에서 수집한 원본 64개 항목
-
 ## Validation
 
 Jetson Nano와 Raspberry Pi Gateway, WSL 기반 검증 서버를 연결해 TensorRT 추론부터 Vision 중계, SQLite 저장까지 전체 경로와 장애·복구 동작을 검증했습니다.
