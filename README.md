@@ -42,11 +42,11 @@ Queue 병목, ACK 정책, PAUSE / RESUME과 분산 장애 처리의 요구사항
 
 ## Troubleshooting
 
-Raspberry Pi 기반 Vision Client를 Jetson Nano로 포팅하고 TensorRT FP16 추론, 네트워크 전송 구조 개선, 장애 제어 및 서버 연동을 진행하면서 발생한 문제와 해결 과정을 정리했습니다.
+TensorRT 가속 이후 발생한 Queue 포화와 Stop-and-Wait ACK 병목, DB 장애 시 PAUSE / RESUME 전파, 재연결 후 상태 동기화와 오래된 데이터 차단을 중심으로 3개 사례를 정리했습니다.
 
-TensorRT 가속 이후 발생한 Queue 포화와 Stop-and-Wait ACK 병목, Continuous TX 전환, PAUSE / RESUME 기반 장애 복구, 실제 서버 연동 과정의 문제를 중심으로 12개 사례를 정리했습니다.
+각 사례의 문제 상황, 원인 분석, 조치와 실제 실행·장애 주입 검증 결과를 담았습니다.
 
-[▶ Troubleshooting](docs/TROUBLESHOOTING.md) — 주요 문제의 증상, 원인 분석, 해결 과정 및 검증 결과
+[▶ Troubleshooting](docs/TROUBLESHOOTING.md) — Queue 병목 개선, DB 장애 제어 및 재연결 복구
 
 ## Validation
 
