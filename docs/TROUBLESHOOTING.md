@@ -95,7 +95,7 @@ TCP 재연결 시 downstream의 준비 상태를 확인해야 합니다. 장애 
 ## 빌드·초기 환경 사례
 
 | 문제 | 확인 및 조치 | 결과 |
-|---|---|---|---|
+|---|---|---|
 | JSON 개발 패키지 누락 | Jetson의 빌드 의존성을 확인하고 `sudo apt install nlohmann-json3-dev` 수행 | 기존 Serializer를 유지하며 빌드 정상화 |
 | `trtexec` 실행 경로 확인 | TensorRT 패키지 설치 여부와 바이너리 위치를 각각 확인 | 실행 파일 위치 확인 후 TensorRT sanity test 진행 |
 | SQUASHFS 읽기 오류·GUI 부팅 실패 | OS 이미지·파일시스템·SD 부팅 환경을 분리해 확인하고 Jetson Nano용 이미지 재기록 | 정상 부팅 후 CUDA·TensorRT·OpenCV·Camera 검증 진행 |
