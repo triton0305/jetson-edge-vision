@@ -36,7 +36,7 @@
 
 Queue 병목, ACK 정책, PAUSE / RESUME과 분산 장애 처리의 요구사항을 정하고, ChatGPT와 시스템 구조 및 기술적 대안을 검토했습니다. Jetson Client와 Pi Gateway / WSL 검증 서버의 책임을 구분하고, Codex를 활용해 장치별 구현 작업을 분리했습니다.
 
-설계 과정에서 결정한 정책은 C++ 구현과 자동 테스트, Jetson → Pi Gateway → WSL 검증 서버의 실장비 연동으로 검증했습니다.
+설계 과정에서 결정한 정책을 각 장치에 구현하고, 자동 테스트와 Jetson → Pi Gateway → WSL 검증 서버의 실장비 연동으로 정상 전송 및 장애·복구 동작을 확인했습니다.
 
 [▶ System Design & AI Collaboration](docs/DESIGN_PROCESS.md) — 설계 의사결정, AI 협업 방식 및 역할 분담
 
